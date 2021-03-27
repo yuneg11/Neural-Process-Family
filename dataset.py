@@ -1,7 +1,8 @@
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
 
-from matplotlib import pyplot as plt
+from torchvision import transforms
+from torchvision.datasets import CelebA
 
 PI = 3.1415926535
 
@@ -30,7 +31,7 @@ def get_context_and_target(x_data, y_data, num_context_range, num_target_range=N
             (target_x.to(device), target_y.to(device)))
 
 
-class CosineDataset(Dataset):
+class SineDataset(Dataset):
     def __init__(self,
                  x_shift_range = (-2., +2.),
                  x_scale_range = (+0.5, +1.5),
@@ -57,7 +58,7 @@ class CosineDataset(Dataset):
             else:
                 x_mat = torch.linspace(start=-PI, end=+PI, steps=num_points).repeat(num_samples, 1)
 
-            y_mat = y_scale_vec * torch.cos((x_mat - x_shift_vec) * x_scale_vec) - y_shift_vec
+            y_mat = y_scale_vec * x_mat * torch.sin((x_mat - x_shift_vec) * x_scale_vec) - y_shift_vec
 
             self._x_mat = x_mat.unsqueeze(dim=-1)
             self._y_mat = y_mat.unsqueeze(dim=-1)
@@ -67,32 +68,6 @@ class CosineDataset(Dataset):
 
     def __getitem__(self, index):
         return self._x_mat[index], self._y_mat[index]
-
-    # def plot(self, index=None):
-    #     if index:
-    #         x_mat = self._x_mat[index].unsqueeze(dim=0)
-    #         y_mat = self._y_mat[index].unsqueeze(dim=0)
-    #     else:
-    #         x_mat = self._x_mat
-    #         y_mat = self._y_mat
-
-    #     fig, ax = plt.subplots(ncols=1, nrows=1)
-
-    #     xlim = x_mat.min(), x_mat.max()
-    #     ylim = y_mat.min(), y_mat.max()
-
-    #     order = x_mat.argsort(dim=1)
-    #     x_mat = x_mat.gather(index=order, dim=1)
-    #     y_mat = y_mat.gather(index=order, dim=1)
-
-    #     for x_vec, y_vec in zip(x_mat, y_mat):
-    #         ax.scatter(x=x_vec, y=y_vec, s=2)
-    #         ax.plot(x_vec, y_vec)
-
-    #     ax.set_xlim(xlim)
-    #     ax.set_ylim(ylim)
-
-    #     return fig
 
 
 class CurveDataset(Dataset):
@@ -164,3 +139,57 @@ class CurveDataset(Dataset):
 
     def __getitem__(self, index):
         return self._x_mat[index], self._y_mat[index]
+
+
+class CelebADataset(CelebA):
+    def __init__(self, size=32, **kwargs):
+        super().__init__(**kwargs)
+
+        loc = torch.stack((torch.linspace(start=0., end=1., steps=size).unsqueeze(dim=1).repeat(1, size),
+                           torch.linspace(start=0., end=1., steps=size).unsqueeze(dim=0).repeat(size, 1)), dim=2)
+
+        self._loc = loc.reshape(size * size, 2)
+
+    def __getitem__(self, index):
+        img, _ = super().__getitem__(index)
+
+        # h == w
+        h, w = img.shape[1], img.shape[2]
+        if h != w or h * w != self._loc.shape[0]:
+            raise ValueError("Given image size is not match with predefined size")
+
+        x = self._loc
+        y = img.permute(1, 2, 0).reshape(h * w, -1)
+
+        return x, y
+
+
+def sine(num_samples=2048, num_points=128, batch_size=1024, train=False, dataset_kwargs={}, dataloader_kwargs={}):
+    dataset = SineDataset(num_samples=num_samples, num_points=num_points, train=train, **dataset_kwargs)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train, **dataloader_kwargs)
+    return dataloader
+
+
+def celeba(root="./data/", batch_size=128, size=32, crop=150, train=False, dataloader_kwargs={}):
+    transform = transforms.Compose([
+        transforms.CenterCrop(crop),
+        transforms.Resize(size),
+        transforms.ToTensor(),
+    ])
+
+    dataset = CelebADataset(root=root, split=("train" if train else "test"), transform=transform, size=size)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train, **dataloader_kwargs)
+    return dataloader
+
+
+datasets = {
+    "sine": sine,
+    "celeba": celeba,
+}
+
+
+def get_dataset(name, batch_size, train=False, **kwargs):
+    if name in datasets:
+        return datasets[name](batch_size=batch_size, train=train, **kwargs)
+    else:
+        return NameError(f"Dataset '{name}' is not supported")

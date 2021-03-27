@@ -4,6 +4,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from torch.distributions.normal import Normal
+from torch.distributions.kl import kl_divergence
 
 
 class DeterministicEncoder(nn.Module):
@@ -126,12 +127,19 @@ class ConditionalNeuralProcess(nn.Module):
     def _aggregator(self, encoder_r):
         return encoder_r.mean(dim=1)
 
-    def forward(self, context_x, context_y, target_x):
+    def forward(self, context_x, context_y, target_x, target_y=None):
         encoder_r = self._encoder(context_x, context_y)
         context_r = self._aggregator(encoder_r)
         mu, sigma = self._decoder(target_x, context_r)
 
-        return mu, sigma
+        if self.training:
+            dist = Normal(mu, sigma)
+            log_prob = dist.log_prob(target_y)
+            loss = -log_prob.mean(dim=0).sum()
+
+            return mu, sigma, loss
+        else:
+            return mu, sigma
 
 
 class NeuralProcess(nn.Module):
@@ -145,18 +153,49 @@ class NeuralProcess(nn.Module):
         self._latent_encoder = LatentEncoder(x_dim, y_dim, z_dim, latent_encoder_dims)
         self._decoder = DeterministicDecoder(x_dim, y_dim, r_dim + z_dim, decoder_dims)
 
-    def _aggregator(self, encoder_r):
+    def _aggregator(self, context_x, target_x, encoder_r):
         return encoder_r.mean(dim=1)
 
-    def forward(self, context_x, context_y, target_x):
+    def forward(self, context_x, context_y, target_x, target_y=None):
         encoder_r = self._deterministic_encoder(context_x, context_y)
-        context_r = self._aggregator(encoder_r)
+        context_r = self._aggregator(context_x, target_x, encoder_r)
 
         encoder_z = self._latent_encoder(context_x, context_y)
-        context_z = encoder_z.sample()
+        context_z = encoder_z.rsample()
 
         context_rep = torch.cat((context_r, context_z), dim=1)
 
         mu, sigma = self._decoder(target_x, context_rep)
 
-        return mu, sigma
+        if self.training:
+            dist = Normal(mu, sigma)
+            log_prob = dist.log_prob(target_y)
+
+            encoder_q = self._latent_encoder(target_x, target_y)
+            kl = kl_divergence(encoder_z, encoder_q)
+
+            loss = -log_prob.mean(dim=0).sum() + kl.mean(dim=0).sum()
+
+            return mu, sigma, loss
+        else:
+            return mu, sigma
+
+
+class AttentiveNeuralProcess(NeuralProcess):
+    def __init__(self, x_dim, y_dim, r_dim, z_dim, att_dim, *args, **kwargs):
+        super().__init__(x_dim, y_dim, r_dim, z_dim, *args, **kwargs)
+
+        self._q_linear = nn.Linear(x_dim, att_dim)
+        self._k_linear = nn.Linear(x_dim, att_dim)
+
+    def _aggregator(self, context_x, target_x, encoder_r):
+        k = self._k_linear(context_x) # b m a_d
+        q = self._q_linear(target_x)  # b n a_d
+        v = encoder_r                 # b n r_d
+
+        scale = torch.sqrt(torch.Tensor(k.shape[-1])).to(context_x.device)
+        w = torch.einsum("bik,bjk->bij", k, q) / scale  # b m n
+        # w = torch.softmax(w, dim=1)
+        w = torch.sigmoid(w)
+        w_v = torch.einsum("bki,bkj->bij", w, encoder_r) # b m 
+        return w_v.mean(dim=1)
