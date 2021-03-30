@@ -5,7 +5,11 @@ from pytorch_lightning.loggers import TensorBoardLogger
 
 import dataset
 import plot
-from np import ConditionalNeuralProcessModel, NeuralProcessModel
+from np import (
+    ConditionalNeuralProcessModel,
+    NeuralProcessModel,
+    AttentiveNeuralProcessModel,
+)
 
 
 def init(dataset_name, model_name):
@@ -16,14 +20,25 @@ def init(dataset_name, model_name):
         check_val_every_n_epoch = 100
 
         if model_name == "cnp":
-            model = ConditionalNeuralProcessModel(x_dim=1, y_dim=1, r_dim=128,
-                                                  encoder_dims=[128, 128, 128],
-                                                  decoder_dims=[128, 128])
+            model = ConditionalNeuralProcessModel(
+                x_dim=1, y_dim=1, r_dim=128,
+                encoder_dims=[128, 128, 128],
+                decoder_dims=[128, 128]
+            )
         elif model_name == "np":
-            model = NeuralProcessModel(x_dim=1, y_dim=1, r_dim=64, z_dim=64,
-                                       deterministic_encoder_dims=[128, 128, 128],
-                                       latent_encoder_dims=[128, 128, 128],
-                                       decoder_dims=[128, 128])
+            model = NeuralProcessModel(
+                x_dim=1, y_dim=1, r_dim=64, z_dim=64,
+                deterministic_encoder_dims=[128, 128, 128],
+                latent_encoder_dims=[128, 128, 128],
+                decoder_dims=[128, 128]
+            )
+        elif model_name == "anp":
+            model = AttentiveNeuralProcessModel(
+                x_dim=1, y_dim=1, r_dim=64, z_dim=64, att_dim=128,
+                deterministic_encoder_dims=[128, 128, 128],
+                latent_encoder_dims=[128, 128, 128],
+                decoder_dims=[128, 128]
+            )
         else:
             raise NameError(f"{model_name} is not supported")
 
@@ -35,14 +50,25 @@ def init(dataset_name, model_name):
         check_val_every_n_epoch = 1
 
         if model_name == "cnp":
-            model = ConditionalNeuralProcessModel(x_dim=2, y_dim=3, r_dim=512,
-                                                  encoder_dims=[512, 512, 512, 512, 512],
-                                                  decoder_dims=[512, 512, 512])
+            model = ConditionalNeuralProcessModel(
+                x_dim=2, y_dim=3, r_dim=512,
+                encoder_dims=[512, 512, 512, 512, 512],
+                decoder_dims=[512, 512, 512]
+            )
         elif model_name == "np":
-            model = NeuralProcessModel(x_dim=2, y_dim=3, r_dim=256, z_dim=256,
-                                       deterministic_encoder_dims=[512, 512, 512, 512, 512],
-                                       latent_encoder_dims=[512, 512, 512, 512, 512],
-                                       decoder_dims=[512, 512, 512, 512])
+            model = NeuralProcessModel(
+                x_dim=2, y_dim=3, r_dim=256, z_dim=256,
+                deterministic_encoder_dims=[512, 512, 512, 512, 512],
+                latent_encoder_dims=[512, 512, 512, 512, 512],
+                decoder_dims=[512, 512, 512, 512]
+            )
+        elif model_name == "anp":
+            model = AttentiveNeuralProcessModel(
+                x_dim=2, y_dim=3, r_dim=256, z_dim=256, att_dim=512,
+                deterministic_encoder_dims=[512, 512, 512, 512, 512],
+                latent_encoder_dims=[512, 512, 512, 512, 512],
+                decoder_dims=[512, 512, 512, 512]
+            )
         else:
             raise NameError(f"{model_name} is not supported")
 
@@ -63,6 +89,6 @@ if __name__ == "__main__":
 
     model, train_loader, test_loader, check_val_every_n_epoch = init(args.dataset, args.model)
 
-    logger = TensorBoardLogger(save_dir=f"./logs/{args.dataset}", name=args.model)
+    logger = TensorBoardLogger(save_dir=f"logs/{args.dataset}", name=args.model)
     trainer = pl.Trainer(gpus=[int(args.gpu)], logger=logger, check_val_every_n_epoch=check_val_every_n_epoch, max_epochs=30000)
     trainer.fit(model, train_loader, test_loader)
