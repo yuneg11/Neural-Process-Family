@@ -1,10 +1,15 @@
 import torch
 
 from torch import nn
+from torch import optim
 from torch.nn import functional as F
 
 from torch.distributions.normal import Normal
 from torch.distributions.kl import kl_divergence
+
+import pytorch_lightning as pl
+
+import plot
 
 
 class DeterministicEncoder(nn.Module):
@@ -127,19 +132,14 @@ class ConditionalNeuralProcess(nn.Module):
     def _aggregator(self, encoder_r):
         return encoder_r.mean(dim=1)
 
-    def forward(self, context_x, context_y, target_x, target_y=None):
+    def forward(self, input_x):
+        context_x, context_y, target_x = input_x
+
         encoder_r = self._encoder(context_x, context_y)
         context_r = self._aggregator(encoder_r)
         mu, sigma = self._decoder(target_x, context_r)
 
-        if self.training:
-            dist = Normal(mu, sigma)
-            log_prob = dist.log_prob(target_y)
-            loss = -log_prob.mean(dim=0).sum()
-
-            return mu, sigma, loss
-        else:
-            return mu, sigma
+        return mu, sigma
 
 
 class NeuralProcess(nn.Module):
@@ -156,7 +156,9 @@ class NeuralProcess(nn.Module):
     def _aggregator(self, context_x, target_x, encoder_r):
         return encoder_r.mean(dim=1)
 
-    def forward(self, context_x, context_y, target_x, target_y=None):
+    def forward(self, input_x):
+        context_x, context_y, target_x = input_x
+
         encoder_r = self._deterministic_encoder(context_x, context_y)
         context_r = self._aggregator(context_x, target_x, encoder_r)
 
@@ -167,18 +169,86 @@ class NeuralProcess(nn.Module):
 
         mu, sigma = self._decoder(target_x, context_rep)
 
-        if self.training:
-            dist = Normal(mu, sigma)
-            log_prob = dist.log_prob(target_y)
+        return mu, sigma
 
-            encoder_q = self._latent_encoder(target_x, target_y)
-            kl = kl_divergence(encoder_z, encoder_q)
 
-            loss = -log_prob.mean(dim=0).sum() + kl.mean(dim=0).sum()
+class ConditionalNeuralProcessModel(ConditionalNeuralProcess, pl.LightningModule):
+    def training_step(self, batch, _):
+        input_x, target_y = batch
 
-            return mu, sigma, loss
-        else:
-            return mu, sigma
+        mu, sigma = self(input_x)
+
+        dist = Normal(mu, sigma)
+        log_prob = dist.log_prob(target_y)
+        loss = -log_prob.mean(dim=0).sum()
+
+        self.log('train_loss', loss)
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        if batch_idx == 0:
+            input_x, target_y = batch
+
+            mu, sigma = self(input_x)
+
+            context_x, context_y, target_x = input_x
+
+            img = self.plotter(context_x, context_y, target_x, target_y, mu, sigma)
+            self.logger.experiment.add_image("test_images", img, self.current_epoch + 1)
+
+    def configure_optimizers(self):
+        optimizer = optim.Adam(self.parameters(), lr=1e-4)
+        return optimizer
+
+
+class NeuralProcessModel(NeuralProcess, pl.LightningModule):
+    def training_step(self, batch, _):
+        (context_x, context_y, target_x), target_y = batch
+
+        encoder_r = self._deterministic_encoder(context_x, context_y)
+        context_r = self._aggregator(context_x, target_x, encoder_r)
+
+        encoder_z = self._latent_encoder(context_x, context_y)
+        context_z = encoder_z.rsample()
+
+        encoder_r = self._deterministic_encoder(context_x, context_y)
+        context_r = self._aggregator(context_x, target_x, encoder_r)
+
+        encoder_z = self._latent_encoder(context_x, context_y)
+        context_z = encoder_z.rsample()
+
+        context_rep = torch.cat((context_r, context_z), dim=1)
+
+        mu, sigma = self._decoder(target_x, context_rep)
+
+
+        dist = Normal(mu, sigma)
+        log_prob = dist.log_prob(target_y)
+
+        encoder_q = self._latent_encoder(target_x, target_y)
+        kl = kl_divergence(encoder_z, encoder_q)
+
+        loss = -log_prob.mean(dim=0).sum() + kl.mean(dim=0).sum()
+
+        self.log('train_loss', loss)
+
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        if batch_idx == 0:
+            input_x, target_y = batch
+
+            mu, sigma = self(input_x)
+
+            context_x, context_y, target_x = input_x
+
+            img = self.plotter(context_x, context_y, target_x, target_y, mu, sigma)
+            self.logger.experiment.add_image("test_images", img, self.current_epoch + 1)
+
+    def configure_optimizers(self):
+        optimizer = optim.Adam(self.parameters(), lr=1e-4)
+        return optimizer
 
 
 class AttentiveNeuralProcess(NeuralProcess):
@@ -197,5 +267,5 @@ class AttentiveNeuralProcess(NeuralProcess):
         w = torch.einsum("bik,bjk->bij", k, q) / scale  # b m n
         # w = torch.softmax(w, dim=1)
         w = torch.sigmoid(w)
-        w_v = torch.einsum("bki,bkj->bij", w, encoder_r) # b m 
+        w_v = torch.einsum("bki,bkj->bij", w, encoder_r) # b m
         return w_v.mean(dim=1)

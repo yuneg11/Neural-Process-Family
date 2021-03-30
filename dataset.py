@@ -7,28 +7,32 @@ from torchvision.datasets import CelebA
 PI = 3.1415926535
 
 
-def get_context_and_target(x_data, y_data, num_context_range, num_target_range=None, device="cpu"):
-    num_points = x_data.shape[1]
-    random_idx = torch.randperm(num_points)
+def get_collate_fn(num_context_range, num_target_range=None):
+    def get_context_and_target(batch):
+        x_data = torch.stack([x for x, _ in batch], dim=0)
+        y_data = torch.stack([y for _, y in batch], dim=0)
 
-    num_context = torch.randint(low=num_context_range[0], high=num_context_range[1], size=(1,))[0]
-    context_idx = random_idx[:num_context]
+        num_points = x_data.shape[1]
+        random_idx = torch.randperm(num_points)
 
-    context_x = x_data.index_select(dim=1, index=context_idx)
-    context_y = y_data.index_select(dim=1, index=context_idx)
+        num_context = torch.randint(low=num_context_range[0], high=num_context_range[1], size=(1,))[0]
+        context_idx = random_idx[:num_context]
 
-    if num_target_range:
-        num_target = torch.randint(low=num_target_range[0], high=num_target_range[1], size=(1,))[0]
-        target_idx = random_idx[:num_context + num_target] # target always includes context
+        context_x = x_data.index_select(dim=1, index=context_idx)
+        context_y = y_data.index_select(dim=1, index=context_idx)
 
-        target_x = x_data.index_select(dim=1, index=target_idx)
-        target_y = y_data.index_select(dim=1, index=target_idx)
-    else:
-        target_x = x_data
-        target_y = y_data
+        if num_target_range:
+            num_target = torch.randint(low=num_target_range[0], high=num_target_range[1], size=(1,))[0]
+            target_idx = random_idx[:num_context + num_target] # target always includes context
 
-    return ((context_x.to(device), context_y.to(device)),
-            (target_x.to(device), target_y.to(device)))
+            target_x = x_data.index_select(dim=1, index=target_idx)
+            target_y = y_data.index_select(dim=1, index=target_idx)
+        else:
+            target_x = x_data
+            target_y = y_data
+
+        return ((context_x, context_y, target_x), target_y)
+    return get_context_and_target
 
 
 class SineDataset(Dataset):
@@ -37,8 +41,8 @@ class SineDataset(Dataset):
                  x_scale_range = (+0.5, +1.5),
                  y_shift_range = (-1., +1.),
                  y_scale_range = (-1., +1.),
-                 num_samples = 1000,
-                 num_points = 100,
+                 num_samples = 2048,
+                 num_points = 128,
                  train = False):
         self._x_shift_range = x_shift_range
         self._y_shift_range = y_shift_range
@@ -164,21 +168,46 @@ class CelebADataset(CelebA):
         return x, y
 
 
-def sine(num_samples=2048, num_points=128, batch_size=1024, train=False, dataset_kwargs={}, dataloader_kwargs={}):
-    dataset = SineDataset(num_samples=num_samples, num_points=num_points, train=train, **dataset_kwargs)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train, **dataloader_kwargs)
+def sine(batch_size = 1024,
+         num_context_range = (5, 10),
+         num_target_range = (5, 10),
+         train = False,
+         dataset_kwargs = {},
+         dataloader_kwargs = {}):
+    if train:
+        collate_fn = get_collate_fn(num_context_range, num_target_range)
+    else:
+        collate_fn = get_collate_fn(num_context_range, None)
+
+    dataset = SineDataset(train=train, **dataset_kwargs)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train, collate_fn=collate_fn, num_workers=4, **dataloader_kwargs)
+
     return dataloader
 
 
-def celeba(root="./data/", batch_size=128, size=32, crop=150, train=False, dataloader_kwargs={}):
+def celeba(batch_size = 128,
+           num_context_range = (30, 100),
+           num_target_range = (100, 300),
+           train = False,
+           root="./data/",
+           size = 32,
+           crop = 150,
+           dataset_kwargs = {},
+           dataloader_kwargs = {}):
+    if train:
+        collate_fn = get_collate_fn(num_context_range, num_target_range)
+    else:
+        collate_fn = get_collate_fn(num_context_range, None)
+
     transform = transforms.Compose([
         transforms.CenterCrop(crop),
         transforms.Resize(size),
         transforms.ToTensor(),
     ])
 
-    dataset = CelebADataset(root=root, split=("train" if train else "test"), transform=transform, size=size)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train, **dataloader_kwargs)
+    dataset = CelebADataset(root=root, split=("train" if train else "test"), transform=transform, size=size, **dataset_kwargs)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train, collate_fn=collate_fn, num_workers=4, **dataloader_kwargs)
+
     return dataloader
 
 

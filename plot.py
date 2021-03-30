@@ -2,8 +2,18 @@ import torch
 
 from matplotlib import pyplot as plt
 
+import numpy as np
 
-def plot_function(filename, context_x, context_y, target_x, target_y, mu, sigma, layout=(2, 2), figsize=None):
+
+def _fig_to_numpy(fig):
+    fig.canvas.draw()
+    buf = fig.canvas.tostring_rgb()
+    w, h = fig.canvas.get_width_height()
+    fig_img = np.fromstring(buf, dtype=np.uint8).reshape(h, w, 3).transpose(2, 0, 1)
+    return fig_img
+
+
+def plot_function(context_x, context_y, target_x, target_y, mu, sigma, layout=(2, 5), figsize=None):
     nrows, ncols = layout
 
     if figsize is None:
@@ -42,14 +52,12 @@ def plot_function(filename, context_x, context_y, target_x, target_y, mu, sigma,
             ax[row][col].set_ylim(ylim)
 
     fig.tight_layout()
-
-    fig.savefig(filename)
-
     plt.close(fig=fig)
-    # return fig
+
+    return _fig_to_numpy(fig)
 
 
-def plot_image(filename, context_x, context_y, target_x, target_y, mu, sigma, layout=(2, 6), figsize=None):
+def plot_image(context_x, context_y, target_x, target_y, mu, sigma, layout=(2, 5), figsize=None):
     nrows, ncols = layout
 
     if figsize is None:
@@ -67,7 +75,7 @@ def plot_image(filename, context_x, context_y, target_x, target_y, mu, sigma, la
 
         target_y_sample = target_y[idx].cpu().detach()
 
-        mu_sample = mu[idx].cpu().detach()
+        mu_sample = mu[idx].cpu().detach().clamp(0, 1)
         # sigma_sample = sigma[idx].cpu().detach()
 
         ax[0][row].imshow(target_y_sample)
@@ -77,8 +85,6 @@ def plot_image(filename, context_x, context_y, target_x, target_y, mu, sigma, la
         ax[1][row].axis("off")
 
     fig.tight_layout()
-
-    fig.savefig(filename)
-
     plt.close(fig=fig)
-    # return fig
+
+    return _fig_to_numpy(fig)
