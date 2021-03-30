@@ -23,7 +23,7 @@ def get_collate_fn(num_context_range, num_target_range=None):
 
         if num_target_range:
             num_target = torch.randint(low=num_target_range[0], high=num_target_range[1], size=(1,))[0]
-            target_idx = random_idx[:num_context + num_target] # target always includes context
+            target_idx = random_idx[:num_context + num_target]  # target always includes context
 
             target_x = x_data.index_select(dim=1, index=target_idx)
             target_y = y_data.index_select(dim=1, index=target_idx)
@@ -37,13 +37,13 @@ def get_collate_fn(num_context_range, num_target_range=None):
 
 class SineDataset(Dataset):
     def __init__(self,
-                 x_shift_range = (-2., +2.),
-                 x_scale_range = (+0.5, +1.5),
-                 y_shift_range = (-1., +1.),
-                 y_scale_range = (-1., +1.),
-                 num_samples = 2048,
-                 num_points = 128,
-                 train = False):
+                 x_shift_range=(-2., +2.),
+                 x_scale_range=(+0.5, +1.5),
+                 y_shift_range=(-1., +1.),
+                 y_scale_range=(-1., +1.),
+                 num_samples=2048,
+                 num_points=128,
+                 train=False):
         self._x_shift_range = x_shift_range
         self._y_shift_range = y_shift_range
         self._y_scale_range = y_scale_range
@@ -52,10 +52,10 @@ class SineDataset(Dataset):
         self._train = train
 
         with torch.no_grad():
-            x_shift_vec = torch.rand(num_samples, 1) * (x_shift_range[1] -  x_shift_range[0]) + x_shift_range[0]
-            x_scale_vec = torch.rand(num_samples, 1) * (x_scale_range[1] -  x_scale_range[0]) + x_scale_range[0]
-            y_shift_vec = torch.rand(num_samples, 1) * (y_shift_range[1] -  y_shift_range[0]) + y_shift_range[0]
-            y_scale_vec = torch.rand(num_samples, 1) * (y_scale_range[1] -  y_scale_range[0]) + y_scale_range[0]
+            x_shift_vec = torch.rand(num_samples, 1) * (x_shift_range[1] - x_shift_range[0]) + x_shift_range[0]
+            x_scale_vec = torch.rand(num_samples, 1) * (x_scale_range[1] - x_scale_range[0]) + x_scale_range[0]
+            y_shift_vec = torch.rand(num_samples, 1) * (y_shift_range[1] - y_shift_range[0]) + y_shift_range[0]
+            y_scale_vec = torch.rand(num_samples, 1) * (y_scale_range[1] - y_scale_range[0]) + y_scale_range[0]
 
             if train:
                 x_mat = torch.rand(num_samples, num_points) * (2 * PI) - PI
@@ -78,9 +78,9 @@ class CurveDataset(Dataset):
     def __init__(self,
                  l1_scale: float = 0.4,
                  sigma_scale: float = 1.0,
-                 num_samples = 1000,
-                 num_points = 100,
-                 train = False):
+                 num_samples=1000,
+                 num_points=100,
+                 train=False):
         self._l1_scale = l1_scale
         self._sigma_scale = sigma_scale
         self._num_samples = num_samples
@@ -168,32 +168,33 @@ class CelebADataset(CelebA):
         return x, y
 
 
-def sine(batch_size = 1024,
-         num_context_range = (5, 10),
-         num_target_range = (5, 10),
-         train = False,
-         dataset_kwargs = {},
-         dataloader_kwargs = {}):
+def sine(batch_size=1024,
+         num_context_range=(5, 10),
+         num_target_range=(5, 10),
+         train=False,
+         dataset_kwargs={},
+         dataloader_kwargs={}):
     if train:
         collate_fn = get_collate_fn(num_context_range, num_target_range)
     else:
         collate_fn = get_collate_fn(num_context_range, None)
 
     dataset = SineDataset(train=train, **dataset_kwargs)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train, collate_fn=collate_fn, num_workers=4, **dataloader_kwargs)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train,
+                            collate_fn=collate_fn, num_workers=4, **dataloader_kwargs)
 
     return dataloader
 
 
-def celeba(batch_size = 128,
-           num_context_range = (30, 100),
-           num_target_range = (100, 300),
-           train = False,
+def celeba(batch_size=128,
+           num_context_range=(30, 100),
+           num_target_range=(100, 300),
+           train=False,
            root="./data/",
-           size = 32,
-           crop = 150,
-           dataset_kwargs = {},
-           dataloader_kwargs = {}):
+           size=32,
+           crop=150,
+           dataset_kwargs={},
+           dataloader_kwargs={}):
     if train:
         collate_fn = get_collate_fn(num_context_range, num_target_range)
     else:
@@ -205,8 +206,10 @@ def celeba(batch_size = 128,
         transforms.ToTensor(),
     ])
 
-    dataset = CelebADataset(root=root, split=("train" if train else "test"), transform=transform, size=size, **dataset_kwargs)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train, collate_fn=collate_fn, num_workers=4, **dataloader_kwargs)
+    dataset = CelebADataset(root=root, split=("train" if train else "test"),
+                            transform=transform, size=size, **dataset_kwargs)
+    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train,
+                            collate_fn=collate_fn, num_workers=4, **dataloader_kwargs)
 
     return dataloader
 

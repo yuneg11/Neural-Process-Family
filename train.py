@@ -8,7 +8,6 @@ import plot
 from np import ConditionalNeuralProcessModel, NeuralProcessModel
 
 
-
 def init(dataset_name, model_name):
     if dataset_name == "sine":
         train_loader = dataset.sine(train=True)
@@ -18,13 +17,13 @@ def init(dataset_name, model_name):
 
         if model_name == "cnp":
             model = ConditionalNeuralProcessModel(x_dim=1, y_dim=1, r_dim=128,
-                                            encoder_dims=[128, 128, 128],
-                                            decoder_dims=[128, 128])
+                                                  encoder_dims=[128, 128, 128],
+                                                  decoder_dims=[128, 128])
         elif model_name == "np":
             model = NeuralProcessModel(x_dim=1, y_dim=1, r_dim=64, z_dim=64,
-                                    deterministic_encoder_dims=[128, 128, 128],
-                                    latent_encoder_dims=[128, 128, 128],
-                                    decoder_dims=[128, 128])
+                                       deterministic_encoder_dims=[128, 128, 128],
+                                       latent_encoder_dims=[128, 128, 128],
+                                       decoder_dims=[128, 128])
         else:
             raise NameError(f"{model_name} is not supported")
 
@@ -37,13 +36,13 @@ def init(dataset_name, model_name):
 
         if model_name == "cnp":
             model = ConditionalNeuralProcessModel(x_dim=2, y_dim=3, r_dim=512,
-                                                encoder_dims=[512, 512, 512, 512, 512],
-                                                decoder_dims=[512, 512, 512])
+                                                  encoder_dims=[512, 512, 512, 512, 512],
+                                                  decoder_dims=[512, 512, 512])
         elif model_name == "np":
             model = NeuralProcessModel(x_dim=2, y_dim=3, r_dim=256, z_dim=256,
-                                    deterministic_encoder_dims=[512, 512, 512, 512, 512],
-                                    latent_encoder_dims=[512, 512, 512, 512, 512],
-                                    decoder_dims=[512, 512, 512, 512])
+                                       deterministic_encoder_dims=[512, 512, 512, 512, 512],
+                                       latent_encoder_dims=[512, 512, 512, 512, 512],
+                                       decoder_dims=[512, 512, 512, 512])
         else:
             raise NameError(f"{model_name} is not supported")
 

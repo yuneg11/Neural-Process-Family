@@ -9,8 +9,6 @@ from torch.distributions.kl import kl_divergence
 
 import pytorch_lightning as pl
 
-import plot
-
 
 class DeterministicEncoder(nn.Module):
     def __init__(self, x_dim, y_dim, r_dim, hidden_dims):
@@ -19,7 +17,7 @@ class DeterministicEncoder(nn.Module):
         input_dim = x_dim + y_dim
         for i, output_dim in enumerate(hidden_dims):
             self.add_module(f'dense{i}', nn.Linear(input_dim, output_dim))
-            self.add_module(f'relu{i}',  nn.ReLU())
+            self.add_module(f'relu{i}', nn.ReLU())
             input_dim = output_dim
         self.add_module(f'dense{len(hidden_dims)}', nn.Linear(input_dim, r_dim))
 
@@ -53,7 +51,7 @@ class LatentEncoder(nn.Module):
         input_dim = x_dim + y_dim
         for i, output_dim in enumerate(hidden_dims):
             self._hidden_layers.add_module(f'dense{i}', nn.Linear(input_dim, output_dim))
-            self._hidden_layers.add_module(f'relu{i}',  nn.ReLU())
+            self._hidden_layers.add_module(f'relu{i}', nn.ReLU())
             input_dim = output_dim
 
         self._mu_linear = nn.Linear(input_dim, z_dim)
@@ -94,7 +92,7 @@ class DeterministicDecoder(nn.Module):
         input_dim = x_dim + rep_dim
         for i, output_dim in enumerate(hidden_dims):
             self.add_module(f'dense{i}', nn.Linear(input_dim, output_dim))
-            self.add_module(f'relu{i}',  nn.ReLU())
+            self.add_module(f'relu{i}', nn.ReLU())
             input_dim = output_dim
         self.add_module(f'dense{len(hidden_dims)}', nn.Linear(input_dim, y_dim + y_dim))
 
@@ -222,7 +220,6 @@ class NeuralProcessModel(NeuralProcess, pl.LightningModule):
 
         mu, sigma = self._decoder(target_x, context_rep)
 
-
         dist = Normal(mu, sigma)
         log_prob = dist.log_prob(target_y)
 
@@ -259,13 +256,13 @@ class AttentiveNeuralProcess(NeuralProcess):
         self._k_linear = nn.Linear(x_dim, att_dim)
 
     def _aggregator(self, context_x, target_x, encoder_r):
-        k = self._k_linear(context_x) # b m a_d
-        q = self._q_linear(target_x)  # b n a_d
-        v = encoder_r                 # b n r_d
+        k = self._k_linear(context_x)  # b m a_d
+        q = self._q_linear(target_x)   # b n a_d
+        v = encoder_r                  # b n r_d
 
         scale = torch.sqrt(torch.Tensor(k.shape[-1])).to(context_x.device)
-        w = torch.einsum("bik,bjk->bij", k, q) / scale  # b m n
+        w = torch.einsum("bik,bjk->bij", k, q) / scale   # b m n
         # w = torch.softmax(w, dim=1)
         w = torch.sigmoid(w)
-        w_v = torch.einsum("bki,bkj->bij", w, encoder_r) # b m
+        w_v = torch.einsum("bki,bkj->bij", w, encoder_r)  # b m
         return w_v.mean(dim=1)
