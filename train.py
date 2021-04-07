@@ -1,85 +1,57 @@
 import argparse
 
+from torch import optim
+
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import TensorBoardLogger
 
-import dataset
-import plot
-from np import (
-    ConditionalNeuralProcessModel,
-    NeuralProcessModel,
-    AttentiveNeuralProcessModel,
+from neural_processes.models import (
+    ConditionalNeuralProcess,
+    AttentiveConditionalNeuralProcess,
+    NeuralProcess,
+    AttentiveNeuralProcess,
 )
 
+import plot
+import dataset
 
-def init(dataset_name, model_name):
-    if dataset_name == "sine":
-        train_loader = dataset.sine(train=True)
-        test_loader = dataset.sine(train=False)
 
-        check_val_every_n_epoch = 100
+class LightningBase(pl.LightningModule):
+    def training_step(self, batch, _):
+        (x_context, y_context, x_target), y_target = batch
 
-        if model_name == "cnp":
-            model = ConditionalNeuralProcessModel(
-                x_dim=1, y_dim=1, r_dim=128,
-                encoder_dims=[128, 128, 128],
-                decoder_dims=[128, 128],
-            )
-        elif model_name == "np":
-            model = NeuralProcessModel(
-                x_dim=1, y_dim=1, r_dim=64, z_dim=64,
-                deterministic_encoder_dims=[128, 128, 128],
-                latent_encoder_dims=[128, 128, 128],
-                decoder_dims=[128, 128],
-            )
-        elif model_name == "anp":
-            model = AttentiveNeuralProcessModel(
-                x_dim=1, y_dim=1, r_dim=64, z_dim=64,
-                deterministic_encoder_dims=[128, 128, 128],
-                latent_encoder_dims=[128, 128, 128],
-                decoder_dims=[128, 128],
-                attention_dims=[128, 128],
-            )
-        else:
-            raise NameError(f"{model_name} is not supported")
+        loss = self.loss(x_context, y_context, x_target, y_target)
 
-        model.plotter = plot.plot_function
+        self.log('train_loss', loss)
 
-    elif dataset_name == "celeba":
-        train_loader = dataset.celeba(train=True, root="~/data")
-        test_loader = dataset.celeba(train=False, root="~/data")
-        check_val_every_n_epoch = 1
+        return loss
 
-        if model_name == "cnp":
-            model = ConditionalNeuralProcessModel(
-                x_dim=2, y_dim=3, r_dim=512,
-                encoder_dims=[512, 512, 512, 512, 512],
-                decoder_dims=[512, 512, 512],
-            )
-        elif model_name == "np":
-            model = NeuralProcessModel(
-                x_dim=2, y_dim=3, r_dim=256, z_dim=256,
-                deterministic_encoder_dims=[512, 512, 512, 512, 512],
-                latent_encoder_dims=[512, 512, 512, 512, 512],
-                decoder_dims=[512, 512, 512, 512],
-            )
-        elif model_name == "anp":
-            model = AttentiveNeuralProcessModel(
-                x_dim=2, y_dim=3, r_dim=256, z_dim=256,
-                deterministic_encoder_dims=[512, 512, 512, 512, 512],
-                latent_encoder_dims=[512, 512, 512, 512, 512],
-                decoder_dims=[512, 512, 512, 512],
-                attention_dims=[512, 512],
-            )
-        else:
-            raise NameError(f"{model_name} is not supported")
+    def validation_step(self, batch, batch_idx):
+        (x_context, y_context, x_target), y_target = batch
 
-        model.plotter = plot.plot_image
+        # if batch_idx == 0:
+        #     mu, sigma = self(x_context, y_context, x_target)
 
-    else:
-        raise NameError(f"{dataset_name} is not supported")
+        #     img = self.plotter(x_context, y_context, x_target, y_target, mu, sigma)
+        #     self.logger.experiment.add_image("test_images", img, self.current_epoch + 1)
 
-    return model, train_loader, test_loader, check_val_every_n_epoch
+        predictive_ll = self.predictive_log_likelihood(x_context, y_context, x_target, y_target)
+        self.log('predictive_ll', predictive_ll)
+
+    def configure_optimizers(self):
+        return self.optimizer
+
+    def set_plotter(self, plotter):
+        self.plotter = plotter
+
+    def set_optimizer(self, optimizer):
+        self.optimizer = optimizer
+
+
+class CNP(ConditionalNeuralProcess, LightningBase): pass
+class ACNP(AttentiveConditionalNeuralProcess, LightningBase): pass
+class NP(NeuralProcess, LightningBase): pass
+class ANP(AttentiveNeuralProcess, LightningBase): pass
 
 
 if __name__ == "__main__":
@@ -89,8 +61,93 @@ if __name__ == "__main__":
     parser.add_argument("-g", "--gpu")
     args = parser.parse_args()
 
-    model, train_loader, test_loader, check_val_every_n_epoch = init(args.dataset, args.model)
+    if args.dataset == "sine":
+        train_loader = dataset.sine(train=True)
+        test_loader = dataset.sine(train=False)
+        check_val_every_n_epoch = 100
+
+        models = {
+            "cnp": CNP(
+                x_dim=1, y_dim=1, r_dim=128,
+                encoder_dims=[128, 128, 128],
+                decoder_dims=[128, 128],
+            ),
+            "acnp": ACNP(
+                x_dim=1, y_dim=1, r_dim=128,
+                encoder_dims=[128, 128, 128],
+                decoder_dims=[128, 128],
+                attention_dims=[32],
+                attention="dot_product",
+            ),
+            "np": NP(
+                x_dim=1, y_dim=1, r_dim=64, s_dim=128, z_dim=64,
+                deterministic_dims=[128, 128, 128],
+                latent_dims=[128, 128, 128],
+                sampler_dims=[96],
+                decoder_dims=[128, 128],
+            ),
+            "anp": ANP(
+                x_dim=1, y_dim=1, r_dim=64, s_dim=128, z_dim=64,
+                deterministic_dims=[128, 128, 128],
+                latent_dims=[128, 128, 128],
+                sampler_dims=[96],
+                decoder_dims=[128, 128],
+                attention_dims=[32],
+                attention="dot_product",
+            )
+        }
+
+        plotter = plot.plot_function
+
+    elif args.dataset == "celeba":
+        train_loader = dataset.celeba(train=True, root="~/data")
+        test_loader = dataset.celeba(train=False, root="~/data")
+        check_val_every_n_epoch = 1
+
+        models = {
+            "cnp": CNP(
+                x_dim=2, y_dim=3, r_dim=512,
+                encoder_dims=[512, 512, 512, 512, 512],
+                decoder_dims=[512, 512, 512],
+            ),
+            "acnp": ACNP(
+                x_dim=2, y_dim=3, r_dim=512,
+                encoder_dims=[512, 512, 512, 512, 512],
+                decoder_dims=[512, 512, 512],
+                attention_dims=[128],
+                attention="dot_product",
+            ),
+            "np": NP(
+                x_dim=2, y_dim=3, r_dim=256, s_dim=512, z_dim=256,
+                deterministic_dims=[512, 512, 512, 512, 512],
+                latent_dims=[512, 512, 512, 512, 512],
+                sampler_dims=[384],
+                decoder_dims=[512, 512, 512],
+            ),
+            "anp": ANP(
+                x_dim=2, y_dim=3, r_dim=64, s_dim=128, z_dim=64,
+                deterministic_dims=[512, 512, 512, 512, 512],
+                latent_dims=[512, 512, 512, 512, 512],
+                sampler_dims=[384],
+                decoder_dims=[512, 512, 512],
+                attention_dims=[128],
+                attention="dot_product",
+            )
+        }
+
+        plotter = plot.plot_image
+
+    else:
+        raise ValueError
+
+
+    model = models[args.model]
+    model.set_plotter(plotter)
+    model.set_optimizer(optim.Adam(model.parameters(), lr=5e-5))
+
+    # DEBUG
+    check_val_every_n_epoch = 10
 
     logger = TensorBoardLogger(save_dir=f"logs/{args.dataset}", name=args.model)
-    trainer = pl.Trainer(gpus=[int(args.gpu)], logger=logger, check_val_every_n_epoch=check_val_every_n_epoch, max_epochs=30000)
+    trainer = pl.Trainer(gpus=[int(args.gpu)], logger=logger, check_val_every_n_epoch=check_val_every_n_epoch, max_epochs=int(1e+6))
     trainer.fit(model, train_loader, test_loader)

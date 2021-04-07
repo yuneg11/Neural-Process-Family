@@ -7,32 +7,37 @@ from torchvision.datasets import CelebA
 PI = 3.1415926535
 
 
-def get_collate_fn(num_context_range, num_target_range=None):
-    def get_context_and_target(batch):
+class NeuralProcessDataLoader(DataLoader):
+    def __init__(self, dataset, num_context_range, num_target_range=None, **kwargs):
+        super().__init__(dataset, collate_fn=self.collate_fn, **kwargs)
+
+        self.num_context_range = num_context_range
+        self.num_target_range = num_target_range
+
+    def collate_fn(self, batch):
         x_data = torch.stack([x for x, _ in batch], dim=0)
         y_data = torch.stack([y for _, y in batch], dim=0)
 
         num_points = x_data.shape[1]
         random_idx = torch.randperm(num_points)
 
-        num_context = torch.randint(low=num_context_range[0], high=num_context_range[1], size=(1,))[0]
+        num_context = torch.randint(low=self.num_context_range[0], high=self.num_context_range[1], size=(1,))[0]
         context_idx = random_idx[:num_context]
 
-        context_x = x_data.index_select(dim=1, index=context_idx)
-        context_y = y_data.index_select(dim=1, index=context_idx)
+        x_context = x_data.index_select(dim=1, index=context_idx)
+        y_context = y_data.index_select(dim=1, index=context_idx)
 
-        if num_target_range:
-            num_target = torch.randint(low=num_target_range[0], high=num_target_range[1], size=(1,))[0]
+        if self.num_target_range:
+            num_target = torch.randint(low=self.num_target_range[0], high=self.num_target_range[1], size=(1,))[0]
             target_idx = random_idx[:num_context + num_target]  # target always includes context
 
-            target_x = x_data.index_select(dim=1, index=target_idx)
-            target_y = y_data.index_select(dim=1, index=target_idx)
+            x_target = x_data.index_select(dim=1, index=target_idx)
+            y_target = y_data.index_select(dim=1, index=target_idx)
         else:
-            target_x = x_data
-            target_y = y_data
+            x_target = x_data
+            y_target = y_data
 
-        return ((context_x, context_y, target_x), target_y)
-    return get_context_and_target
+        return (x_context, y_context, x_target), y_target
 
 
 class SineDataset(Dataset):
@@ -169,37 +174,28 @@ class CelebADataset(CelebA):
 
 
 def sine(batch_size=1024,
-         num_context_range=(5, 10),
-         num_target_range=(5, 10),
+         num_context_range=(3, 47),
+         num_target_range=(3, 50),
          train=False,
          dataset_kwargs={},
          dataloader_kwargs={}):
-    if train:
-        collate_fn = get_collate_fn(num_context_range, num_target_range)
-    else:
-        collate_fn = get_collate_fn(num_context_range, None)
 
     dataset = SineDataset(train=train, **dataset_kwargs)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train,
-                            collate_fn=collate_fn, num_workers=4, **dataloader_kwargs)
+    dataloader = NeuralProcessDataLoader(dataset, num_context_range, num_target_range if train else None,
+                                         batch_size=batch_size, shuffle=train, num_workers=4, **dataloader_kwargs)
 
     return dataloader
 
 
 def celeba(batch_size=128,
            num_context_range=(30, 100),
-           num_target_range=(100, 300),
+           num_target_range=(10, 200),
            train=False,
            root="./data/",
            size=32,
            crop=150,
            dataset_kwargs={},
            dataloader_kwargs={}):
-    if train:
-        collate_fn = get_collate_fn(num_context_range, num_target_range)
-    else:
-        collate_fn = get_collate_fn(num_context_range, None)
-
     transform = transforms.Compose([
         transforms.CenterCrop(crop),
         transforms.Resize(size),
@@ -208,8 +204,8 @@ def celeba(batch_size=128,
 
     dataset = CelebADataset(root=root, split=("train" if train else "test"),
                             transform=transform, size=size, **dataset_kwargs)
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=train,
-                            collate_fn=collate_fn, num_workers=4, **dataloader_kwargs)
+    dataloader = NeuralProcessDataLoader(dataset, num_context_range, num_target_range if train else None,
+                                         batch_size=batch_size, shuffle=train, num_workers=16, **dataloader_kwargs)
 
     return dataloader
 

@@ -1,3 +1,5 @@
+import math
+
 import torch
 
 from matplotlib import pyplot as plt
@@ -67,8 +69,10 @@ def plot_image(context_x, context_y, target_x, target_y, mu, sigma, layout=(2, 5
     idxs = torch.randint(low=0, high=context_x.shape[0], size=(ncols,))
 
     batch_size, hw, channel = target_y.shape
-    target_y = target_y.reshape(batch_size, 32, 32, channel)
-    mu = mu.reshape(batch_size, 32, 32, channel)
+
+    h = w = round(math.sqrt(64*64))
+    target_y = target_y.reshape(batch_size, h, w, channel)
+    mu = mu.reshape(batch_size, h, w, channel)
 
     for row in range(ncols):
         idx = idxs[row]
