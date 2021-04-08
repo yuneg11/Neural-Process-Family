@@ -29,14 +29,18 @@ class LightningBase(pl.LightningModule):
     def validation_step(self, batch, batch_idx):
         (x_context, y_context, x_target), y_target = batch
 
-        # if batch_idx == 0:
-        #     mu, sigma = self(x_context, y_context, x_target)
+        if batch_idx == 0:
+            mu, sigma = self(x_context, y_context, x_target)
 
-        #     img = self.plotter(x_context, y_context, x_target, y_target, mu, sigma)
-        #     self.logger.experiment.add_image("test_images", img, self.current_epoch + 1)
+            img = self.plotter(x_context, y_context, x_target, y_target, mu, sigma)
+            self.logger.experiment.add_image("test_images", img, self.current_epoch + 1)
 
         predictive_ll = self.predictive_log_likelihood(x_context, y_context, x_target, y_target)
         self.log('predictive_ll', predictive_ll)
+
+        # if hasattr(self, "joint_log_likelihood"):
+        #     joint_ll = self.joint_log_likelihood(x_target, y_target)
+        #     self.log('joint_ll', joint_ll)
 
     def configure_optimizers(self):
         return self.optimizer
@@ -70,12 +74,12 @@ if __name__ == "__main__":
             "cnp": CNP(
                 x_dim=1, y_dim=1, r_dim=128,
                 encoder_dims=[128, 128, 128],
-                decoder_dims=[128, 128],
+                decoder_dims=[128, 128, 128],
             ),
             "acnp": ACNP(
                 x_dim=1, y_dim=1, r_dim=128,
                 encoder_dims=[128, 128, 128],
-                decoder_dims=[128, 128],
+                decoder_dims=[128, 128, 128],
                 attention_dims=[32],
                 attention="dot_product",
             ),
@@ -84,14 +88,14 @@ if __name__ == "__main__":
                 deterministic_dims=[128, 128, 128],
                 latent_dims=[128, 128, 128],
                 sampler_dims=[96],
-                decoder_dims=[128, 128],
+                decoder_dims=[128, 128, 128],
             ),
             "anp": ANP(
                 x_dim=1, y_dim=1, r_dim=64, s_dim=128, z_dim=64,
                 deterministic_dims=[128, 128, 128],
                 latent_dims=[128, 128, 128],
                 sampler_dims=[96],
-                decoder_dims=[128, 128],
+                decoder_dims=[128, 128, 128],
                 attention_dims=[32],
                 attention="dot_product",
             )
@@ -149,5 +153,5 @@ if __name__ == "__main__":
     check_val_every_n_epoch = 10
 
     logger = TensorBoardLogger(save_dir=f"logs/{args.dataset}", name=args.model)
-    trainer = pl.Trainer(gpus=[int(args.gpu)], logger=logger, check_val_every_n_epoch=check_val_every_n_epoch, max_epochs=int(1e+6))
+    trainer = pl.Trainer(gpus=[int(args.gpu)], logger=logger, check_val_every_n_epoch=check_val_every_n_epoch, max_epochs=int(1e+5))
     trainer.fit(model, train_loader, test_loader)
