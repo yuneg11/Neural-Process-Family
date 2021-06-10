@@ -1,9 +1,15 @@
 from graph_model import Node
 
 from .base import NeuralProcessBase
-
-from .modules.misc import MuSigmaSplitter
-from .modules.metrics import LogLikelihood
+from ..modules import (
+    MLP,
+    NNEncoder,
+    NNDecoder,
+    CrossAttention,
+    MuSigmaSplitter,
+    LogLikelihood,
+    ConditionalLoss,
+)
 
 
 class AttentiveConditionalNeuralProcess(NeuralProcessBase):
@@ -65,3 +71,22 @@ class AttentiveConditionalNeuralProcess(NeuralProcessBase):
             )
 
         return nodes
+
+
+def attncnp(x_dim, y_dim, h_dim):
+    encoder = NNEncoder(MLP(x_dim + y_dim, [h_dim, h_dim], h_dim))
+    cross_attender = CrossAttention(
+        input_dim=x_dim,
+        embedding_dim=h_dim,
+        values_dim=h_dim,
+        num_heads=8,
+    )
+    decoder = NNDecoder(MLP(x_dim + h_dim, [h_dim, h_dim], y_dim + y_dim))
+    loss_function = ConditionalLoss()
+
+    return AttentiveConditionalNeuralProcess(
+        encoder=encoder,
+        cross_attender=cross_attender,
+        decoder=decoder,
+        loss_function=loss_function,
+    )

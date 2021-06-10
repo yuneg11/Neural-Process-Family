@@ -1,8 +1,18 @@
+from torch import nn
+
 from graph_model import Node
 
 from .base import NeuralProcessBase
-
-from .modules.metrics import LogLikelihood
+from ..modules import (
+    Discretizer,
+    SetConvEncoder,
+    CNNDecoder,
+    UNet,
+    SimpleConv,
+    SetConv,
+    LogLikelihood,
+    ConditionalLoss,
+)
 
 
 class ConvolutionalConditionalNeuralProcess(NeuralProcessBase):
@@ -53,3 +63,42 @@ class ConvolutionalConditionalNeuralProcess(NeuralProcessBase):
                  outputs=["loss"],
                  func=self.loss_function),
         ]
+
+
+def convcnp(y_dim, points_per_unit=64, xl=False):
+    if xl:
+        cnn = UNet()
+    else:
+        cnn = SimpleConv()
+
+    init_length_scale = 2.0 / points_per_unit
+
+    discretizer = Discretizer(points_per_unit, 2 ** cnn.num_halving_layers)
+    encoder = SetConvEncoder(
+        in_channels=y_dim,
+        out_channels=cnn.in_channels,
+        init_length_scale=init_length_scale,
+        activation=nn.Sigmoid(),
+    )
+    decoder = CNNDecoder(cnn)
+    mu_set_conv = SetConv(
+        in_channels=cnn.out_channels,
+        out_channels=y_dim,
+        init_length_scale=init_length_scale,
+    )
+    sigma_set_conv = SetConv(
+        in_channels=cnn.out_channels,
+        out_channels=y_dim,
+        init_length_scale=init_length_scale,
+        activation=nn.Softplus(),
+    )
+    loss_function = ConditionalLoss()
+
+    return ConvolutionalConditionalNeuralProcess(
+        discretizer=discretizer,
+        encoder=encoder,
+        decoder=decoder,
+        mu_set_conv=mu_set_conv,
+        sigma_set_conv=sigma_set_conv,
+        loss_function=loss_function,
+    )

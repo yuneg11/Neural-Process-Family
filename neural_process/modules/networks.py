@@ -3,48 +3,18 @@ from torch import nn
 from torch.nn import functional as F
 
 
-def pad_concat(t1, t2):
-    """Concat the activations of two layer channel-wise by padding the layer
-    with fewer points with zeros.
+class MLP(nn.Sequential):
+    def __init__(self, in_features, hidden_features, out_features):
+        layers = []
 
-    Args:
-        t1 (tensor): Activations from first layers of shape `(batch, n1, c1)`.
-        t2 (tensor): Activations from second layers of shape `(batch, n2, c2)`.
+        input_dim = in_features
+        for output_dim in hidden_features:
+            layers.append(nn.Linear(in_features=input_dim, out_features=output_dim))
+            layers.append(nn.ReLU())
+            input_dim = output_dim
+        layers.append(nn.Linear(in_features=input_dim, out_features=out_features))
 
-    Returns:
-        tensor: Concatenated activations of both layers of shape
-            `(batch, max(n1, n2), c1 + c2)`.
-    """
-    if t1.shape[2] != t2.shape[2]:
-        if t1.shape[2] > t2.shape[2]:
-            padding = t1.shape[2] - t2.shape[2]
-        else:
-            padding = t2.shape[2] - t1.shape[2]
-
-        if padding % 2 == 0:  # Even difference
-            t2 = F.pad(t2, [int(padding / 2), int(padding / 2)], 'reflect')
-        else:  # Odd difference
-            t2 = F.pad(t2, [int((padding - 1) / 2), int((padding + 1) / 2)], 'reflect')
-
-    return torch.cat([t1, t2], dim=1)
-
-
-def init_sequential_weights(model, bias=0.0):
-    """Initialize the weights of a nn.Sequential model with Glorot initialization.
-
-    Args:
-        model (:class:`nn.Sequential`): Container for model.
-        bias (float, optional): Value for initializing bias terms. Defaults to `0.0`.
-
-    Returns:
-        (nn.Sequential): model with initialized weights
-    """
-    for layer in model:
-        if hasattr(layer, 'weight'):
-            nn.init.xavier_normal_(layer.weight, gain=1)
-        if hasattr(layer, 'bias'):
-            nn.init.constant_(layer.bias, bias)
-    return model
+        super().__init__(*layers)
 
 
 class BatchMLP(nn.Module):
@@ -201,21 +171,47 @@ class UNet(nn.Module):
         h6 = self.activation(self.l6(h5))
         h7 = self.activation(self.l7(h6))
 
-        h7 = pad_concat(h5, h7)
+        h7 = self.pad_concat(h5, h7)
         h8 = self.activation(self.l8(h7))
-        h8 = pad_concat(h4, h8)
+        h8 = self.pad_concat(h4, h8)
         h9 = self.activation(self.l9(h8))
-        h9 = pad_concat(h3, h9)
+        h9 = self.pad_concat(h3, h9)
         h10 = self.activation(self.l10(h9))
-        h10 = pad_concat(h2, h10)
+        h10 = self.pad_concat(h2, h10)
         h11 = self.activation(self.l11(h10))
-        h11 = pad_concat(h1, h11)
+        h11 = self.pad_concat(h1, h11)
         h12 = self.activation(self.l12(h11))
 
-        return pad_concat(x, h12)
+        return self.pad_concat(x, h12)
+
+    @staticmethod
+    def pad_concat(t1, t2):
+        """Concat the activations of two layer channel-wise by padding the layer
+        with fewer points with zeros.
+
+        Args:
+            t1 (tensor): Activations from first layers of shape `(batch, n1, c1)`.
+            t2 (tensor): Activations from second layers of shape `(batch, n2, c2)`.
+
+        Returns:
+            tensor: Concatenated activations of both layers of shape
+                `(batch, max(n1, n2), c1 + c2)`.
+        """
+        if t1.shape[2] != t2.shape[2]:
+            if t1.shape[2] > t2.shape[2]:
+                padding = t1.shape[2] - t2.shape[2]
+            else:
+                padding = t2.shape[2] - t1.shape[2]
+
+            if padding % 2 == 0:  # Even difference
+                t2 = F.pad(t2, [int(padding / 2), int(padding / 2)], 'reflect')
+            else:  # Odd difference
+                t2 = F.pad(t2, [int((padding - 1) / 2), int((padding + 1) / 2)], 'reflect')
+
+        return torch.cat([t1, t2], dim=1)
 
 
-class SimpleConv(nn.Module):
+class SimpleConv(nn.Sequential):
     """Small convolutional architecture from 1d experiments in the paper.
     This is a 4-layer convolutional network with fixed stride and channels, using ReLU activations.
 
@@ -228,11 +224,9 @@ class SimpleConv(nn.Module):
 
     def __init__(self, in_channels=8, out_channels=8):
         super(SimpleConv, self).__init__()
-        self.in_channels = in_channels
-        self.out_channels = out_channels
-        self.activation = nn.ReLU()
-        self.conv_net = nn.Sequential(
-            nn.Conv1d(in_channels=self.in_channels, out_channels=16,
+
+        super().__init__(
+            nn.Conv1d(in_channels=in_channels, out_channels=16,
                       kernel_size=5, stride=1, padding=2),
             nn.ReLU(),
             nn.Conv1d(in_channels=16, out_channels=32,
@@ -241,20 +235,17 @@ class SimpleConv(nn.Module):
             nn.Conv1d(in_channels=32, out_channels=16,
                       kernel_size=5, stride=1, padding=2),
             nn.ReLU(),
-            nn.Conv1d(in_channels=16, out_channels=self.out_channels,
+            nn.Conv1d(in_channels=16, out_channels=out_channels,
                       kernel_size=5, stride=1, padding=2),
             nn.ReLU(),
         )
-        init_sequential_weights(self.conv_net)
+
+        self.in_channels = in_channels
+        self.out_channels = out_channels
         self.num_halving_layers = 0
 
-    def forward(self, x):
-        """Forward pass through the convolutional structure.
-
-        Args:
-            x (tensor): Inputs of shape `(batch, n_in, in_channels)`.
-
-        Returns:
-            tensor: Outputs of shape `(batch, n_out, out_channels)`.
-        """
-        return self.conv_net(x)
+        for layer in self:
+            if hasattr(layer, 'weight'):
+                nn.init.xavier_normal_(layer.weight, gain=1)
+            if hasattr(layer, 'bias'):
+                nn.init.constant_(layer.bias, 0.0)

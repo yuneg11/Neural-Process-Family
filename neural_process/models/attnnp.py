@@ -1,14 +1,20 @@
 from graph_model import Node
 
 from .base import NeuralProcessBase
-
-from .modules.misc import (
-    MeanAggregator,
-    MuSigmaSplitter,
+from ..modules import (
+    MLP,
+    NNEncoder,
+    NNDecoder,
+    Distributor,
     Sampler,
+    MeanAggregator,
+    CrossAttention,
     DeterministicLatentConcatenator,
+    MuSigmaSplitter,
+    LogLikelihood,
+    KLDivergence,
+    LatentLoss,
 )
-from .modules.metrics import LogLikelihood, KLDivergence
 
 
 class AttentiveNeuralProcess(NeuralProcessBase):
@@ -172,3 +178,27 @@ class AttentiveNeuralProcess(NeuralProcessBase):
         )
 
         return nodes
+
+
+def attnnp(x_dim, y_dim, h_dim):
+    latent_encoder = NNEncoder(MLP(x_dim + y_dim, [h_dim, h_dim], h_dim))
+    deterministic_encoder = NNEncoder(MLP(x_dim + y_dim, [h_dim, h_dim], h_dim))
+    deterministic_cross_attender = CrossAttention(
+        input_dim=x_dim,
+        embedding_dim=h_dim,
+        values_dim=h_dim,
+        num_heads=8,
+    )
+    distributor = Distributor(MLP(h_dim, [h_dim], h_dim + h_dim))
+    decoder = NNDecoder(MLP(x_dim + h_dim + h_dim, [h_dim, h_dim], y_dim + y_dim), latent=True)
+    loss_function = LatentLoss()
+
+    return AttentiveNeuralProcess(
+        latent_encoder=latent_encoder,
+        deterministic_encoder=deterministic_encoder,
+        deterministic_cross_attender=deterministic_cross_attender,
+        distributor=distributor,
+        decoder=decoder,
+        loss_function=loss_function,
+        deterministic_path=True,
+    )

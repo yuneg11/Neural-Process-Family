@@ -1,9 +1,15 @@
 from graph_model import Node
 
 from .base import NeuralProcessBase
-
-from .modules.misc import MeanAggregator, MuSigmaSplitter
-from .modules.metrics import LogLikelihood
+from ..modules import (
+    MLP,
+    NNEncoder,
+    NNDecoder,
+    MeanAggregator,
+    MuSigmaSplitter,
+    LogLikelihood,
+    ConditionalLoss,
+)
 
 
 class ConditionalNeuralProcess(NeuralProcessBase):
@@ -47,3 +53,15 @@ class ConditionalNeuralProcess(NeuralProcessBase):
                  outputs=["loss"],
                  func=self.loss_function),
         ]
+
+
+def cnp(x_dim, y_dim, h_dim):
+    encoder = NNEncoder(MLP(x_dim + y_dim, [h_dim, h_dim], h_dim))
+    decoder = NNDecoder(MLP(x_dim + h_dim, [h_dim, h_dim], y_dim + y_dim))
+    loss_function = ConditionalLoss()
+
+    return ConditionalNeuralProcess(
+        encoder=encoder,
+        decoder=decoder,
+        loss_function=loss_function,
+    )

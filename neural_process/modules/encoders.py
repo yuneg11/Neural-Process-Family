@@ -34,7 +34,6 @@ class SetConv(nn.Module):
         init_length_scale,
         activation=None,
         learn_length_scale=True,
-        latent=False
     ):
         super().__init__()
 
@@ -50,8 +49,6 @@ class SetConv(nn.Module):
         self.sigma = nn.Parameter(torch.full((self.in_channels,), np.log(init_length_scale)),
                                   requires_grad=learn_length_scale)
 
-        self.latent = latent
-
     def forward(self, x, y, t):
         """Forward pass through the layer with evaluations at locations `t`.
         Args:
@@ -61,12 +58,6 @@ class SetConv(nn.Module):
         Returns:
             tensor: Outputs of evaluated function at `z` of shape `(m, out_channels)`.
         """
-        if self.latent:
-            batch_size, num_latents, n_in, in_channels = y.shape
-            x = x.repeat_interleave(num_latents, dim=0)
-            t = t.repeat_interleave(num_latents, dim=0)
-            y = y.reshape(batch_size * num_latents, n_in, in_channels)
-
         batch_size = x.shape[0]
         n_in = x.shape[1]
         # n_out = t.shape[1]
@@ -85,9 +76,6 @@ class SetConv(nn.Module):
 
         if self.activation is not None:
             y_out = self.activation(y_out)
-
-        if self.latent:
-            y_out = y_out.reshape(batch_size // num_latents, num_latents, -1, self.out_channels)
 
         return y_out
 
@@ -132,6 +120,29 @@ class SetConv(nn.Module):
         pointwise_input = y_out.reshape(batch_size * n_out, in_channels)
         pointwise_output = self.net(pointwise_input)
         y_out = pointwise_output.reshape(batch_size, n_out, -1)
+
+        return y_out
+
+
+class LatentSetConv(SetConv):
+    def forward(self, x, y, t):
+        """Forward pass through the layer with evaluations at locations `t`.
+        Args:
+            x (tensor): Inputs of observations of shape `(n, 1)`.
+            y (tensor): Outputs of observations of shape `(n, in_channels)`.
+            t (tensor): Inputs to evaluate function at of shape `(m, 1)`.
+        Returns:
+            tensor: Outputs of evaluated function at `z` of shape `(m, out_channels)`.
+        """
+        batch_size, num_latents, n_in, in_channels = y.shape
+
+        x = x.repeat_interleave(num_latents, dim=0)
+        t = t.repeat_interleave(num_latents, dim=0)
+        y = y.reshape(batch_size * num_latents, n_in, in_channels)
+
+        y_out = super().forward(x, y, t)
+
+        y_out = y_out.reshape(batch_size, num_latents, -1, self.out_channels)
 
         return y_out
 

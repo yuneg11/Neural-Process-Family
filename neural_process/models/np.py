@@ -2,13 +2,20 @@ from graph_model import Node
 
 from .base import NeuralProcessBase
 
-from .modules.misc import (
-    MeanAggregator,
-    MuSigmaSplitter,
+
+from ..modules import (
+    MLP,
+    NNEncoder,
+    NNDecoder,
+    Distributor,
     Sampler,
+    MeanAggregator,
     DeterministicLatentConcatenator,
+    MuSigmaSplitter,
+    LogLikelihood,
+    KLDivergence,
+    LatentLoss,
 )
-from .modules.metrics import LogLikelihood, KLDivergence
 
 
 class NeuralProcess(NeuralProcessBase):
@@ -121,3 +128,20 @@ class NeuralProcess(NeuralProcessBase):
         )
 
         return nodes
+
+
+def np(x_dim, y_dim, h_dim):
+    latent_encoder = NNEncoder(MLP(x_dim + y_dim, [h_dim, h_dim], h_dim))
+    deterministic_encoder = NNEncoder(MLP(x_dim + y_dim, [h_dim, h_dim], h_dim))
+    distributor = Distributor(MLP(h_dim, [h_dim], h_dim + h_dim))
+    decoder = NNDecoder(MLP(x_dim + h_dim + h_dim, [h_dim, h_dim], y_dim + y_dim), latent=True)
+    loss_function = LatentLoss()
+
+    return NeuralProcess(
+        latent_encoder=latent_encoder,
+        deterministic_encoder=deterministic_encoder,
+        distributor=distributor,
+        decoder=decoder,
+        loss_function=loss_function,
+        deterministic_path=True,
+    )
