@@ -4,3 +4,4 @@ from .attncnp import AttentiveConditionalNeuralProcess, attncnp
 from .attnnp import AttentiveNeuralProcess, attnnp
 from .convcnp import ConvolutionalConditionalNeuralProcess, convcnp
 from .convnp import ConvolutionalNeuralProcess, convnp
+from .gnp import GNP
