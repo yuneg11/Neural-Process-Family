@@ -7,6 +7,8 @@ from .discretisation import Discretisation1d
 from .encoder import SetConv1dEncoder, SetConv2dEncoder
 from .unet import UNet
 
+from ...modules.metrics import LogLikelihood
+
 __all__ = ["GNP"]
 
 
@@ -60,6 +62,8 @@ class GNP(nn.Module):
             requires_grad=True,
         )
 
+        self.log_likelihood = LogLikelihood()
+
     def forward(self, x_context, y_context, x_target=None):
         if x_target is None:
             if self.x_target is None:
@@ -79,11 +83,14 @@ class GNP(nn.Module):
         # Run kernel architecture:
         xz, z = self.encoder_kernel(x_context, y_context, x_target)
         z = self.conv_kernel(z)
-        cov = self.decoder_kernel(xz, z, x_target)[1][:, 0, :, :]
+        # cov = self.decoder_kernel(xz, z, x_target)[1][:, 0, :, :]
+        cov = torch.squeeze(self.decoder_kernel(xz, z, x_target)[1], dim=1)
 
         # Add observation noise.
-        with B.device(B.device(cov)):
-            cov = cov + B.eye(cov) * B.exp(self.log_sigma)
+        # with B.device(B.device(cov)):
+        if True:
+            # cov = cov.cuda()
+            cov = cov + B.eye(cov).cuda() * B.exp(self.log_sigma.cuda()).cuda()
 
         return mean, cov
 
@@ -93,12 +100,15 @@ class GNP(nn.Module):
         return (-torch.mean(dist.log_prob(y_target[:, :, 0])) / y_target.shape[1])
 
     def predictive_ll(self, x_context, y_context, x_target, y_target, num_latents=None):
-        # m = x_context.shape[1]
         n = x_target.shape[1]
 
         with torch.no_grad():
             mean, cov = self(x_context, y_context, x_target)
-            dist = torch.distributions.MultivariateNormal(loc=mean, covariance_matrix=cov)
-            predictive_ll = torch.mean(dist.log_prob(y_target[:, :, 0])) / y_target.shape[1]
+            # dist = torch.distributions.MultivariateNormal(loc=mean, covariance_matrix=cov)
+            # predictive_ll = torch.mean(dist.log_prob(y_target[:, :, 0])) / y_target.shape[1]
+
+            sigma = torch.sqrt(torch.diagonal(cov, dim1=-2, dim2=-1))
+            log_likelihood = self.log_likelihood(mean.unsqueeze(dim=-1), sigma.unsqueeze(dim=-1), y_target)
+            predictive_ll = log_likelihood / n
 
         return predictive_ll

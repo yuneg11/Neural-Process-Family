@@ -16,10 +16,13 @@ class SetConv1dEncoder(nn.Module):
         self.discretisation = discretisation
 
     def forward(self, xz, z, x):
-        with B.device(B.device(z)):
+        # with B.device(z.device):
+        if True:
             # Construct grid and density.
-            x_grid = self.discretisation(xz, x)
-            density_channel = torch.ones((*z.shape[:2], 1), dtype=z.dtype).to(z.device)
+            # x_grid = self.discretisation(xz, x)
+            x_grid = self.discretisation(xz, x).cuda()
+            # density_channel = torch.ones((*z.shape[:2], 1), dtype=z.dtype).to(x.device)
+            density_channel = torch.ones((*z.shape[:2], 1), dtype=z.dtype).cuda()
 
         # Prepend density channel.
         z = torch.cat((density_channel, z), dim=2)
@@ -50,17 +53,18 @@ class SetConv2dEncoder(nn.Module):
         self.discretisation = discretisation
 
     def forward(self, xz, z, x):
-        with B.device(B.device(z)):
+        # with B.device(z.device):
+        if True:
             # Construct grid, density, identity channel.
-            x_grid = self.discretisation(xz, x)
-            density_channel = B.ones(B.dtype(z), *B.shape(z)[:2], 1)
+            x_grid = self.discretisation(xz, x).cuda()
+            density_channel = B.ones(B.dtype(z), *B.shape(z)[:2], 1).cuda()
             identity_channel = B.eye(
                 B.dtype(z),
                 B.shape(z)[0],
                 1,
                 B.shape(x_grid)[0],
                 B.shape(x_grid)[0],
-            )
+            ).cuda()
 
         # Prepend density channel.
         z = B.concat(density_channel, z, axis=2)
