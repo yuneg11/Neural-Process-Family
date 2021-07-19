@@ -1,3 +1,6 @@
+from typing import Tuple
+from torchtyping import TensorType
+
 import abc
 
 from torch import nn
@@ -16,39 +19,59 @@ class NPF(nn.Module):
 
 class ConditionalNPF(NPF):
     @abc.abstractmethod
-    def forward(self, x_context, y_context, x_target):
+    def forward(
+        self,
+        x_context: TensorType["batch", "context", "x_dim"],
+        y_context: TensorType["batch", "context", "y_dim"],
+        x_target:  TensorType["batch", "target",  "x_dim"],
+    ) -> Tuple[
+        TensorType["batch", "target", "y_dim"],
+        TensorType["batch", "target", "y_dim"]
+    ]:
         """
         Args:
-            x_context: [batch, context, x_dim]
-            y_context: [batch, context, y_dim]
-            x_target:  [batch, target,  x_dim]
+            x_context: Tensor[batch, context, x_dim]
+            y_context: Tensor[batch, context, y_dim]
+            x_target:  Tensor[batch, target,  x_dim]
 
         Returns:
-            mu:    [batch, target, y_dim]
-            sigma: [batch, target, y_dim]
+            mu:    Tensor[batch, target, y_dim]
+            sigma: Tensor[batch, target, y_dim]
         """
 
     @abc.abstractmethod
-    def log_likelihood(self, x_context, y_context, x_target, y_target):
+    def log_likelihood(
+        self,
+        x_context: TensorType["batch", "context", "x_dim"],
+        y_context: TensorType["batch", "context", "y_dim"],
+        x_target:  TensorType["batch", "target",  "x_dim"],
+        y_target:  TensorType["batch", "target",  "y_dim"],
+    ) -> float:
         """
         Args:
-            x_context: [batch, context, x_dim]
-            y_context: [batch, context, y_dim]
-            x_target:  [batch, target,  x_dim]
-            y_target:  [batch, target,  y_dim]
+            x_context: Tensor[batch, context, x_dim]
+            y_context: Tensor[batch, context, y_dim]
+            x_target:  Tensor[batch, target,  x_dim]
+            y_target:  Tensor[batch, target,  y_dim]
 
         Returns:
             log_likelihood: float
         """
 
     @abc.abstractmethod
-    def loss(self, x_context, y_context, x_target, y_target):
+    def loss(
+        self,
+        x_context: TensorType["batch", "context", "x_dim"],
+        y_context: TensorType["batch", "context", "y_dim"],
+        x_target:  TensorType["batch", "target",  "x_dim"],
+        y_target:  TensorType["batch", "target",  "y_dim"],
+    ) -> float:
         """
         Args:
-            x_context: [batch, context, x_dim]
-            y_context: [batch, context, y_dim]
-            x_target:  [batch, target,  x_dim]
-            y_target:  [batch, target,  y_dim]
+            x_context: Tensor[batch, context, x_dim]
+            y_context: Tensor[batch, context, y_dim]
+            x_target:  Tensor[batch, target,  x_dim]
+            y_target:  Tensor[batch, target,  y_dim]
 
         Returns:
             log_likelihood: float
@@ -57,8 +80,27 @@ class ConditionalNPF(NPF):
 
 class LatentNPF(NPF):
     @abc.abstractmethod
-    def forward(self, x_context, y_context, x_target, num_latents):
-        raise NotImplementedError
+    def forward(
+        self,
+        x_context: TensorType["batch", "context", "x_dim"],
+        y_context: TensorType["batch", "context", "y_dim"],
+        x_target:  TensorType["batch", "target",  "x_dim"],
+        num_latents: int = 1,
+    ) -> Tuple[
+        TensorType["batch", "latent", "target", "y_dim"],
+        TensorType["batch", "latent", "target", "y_dim"]
+    ]:
+        """
+        Args:
+            x_context: Tensor[batch, context, x_dim]
+            y_context: Tensor[batch, context, y_dim]
+            x_target:  Tensor[batch, target,  x_dim]
+            num_latents: int
+
+        Returns:
+            mu:    Tensor[batch, target, y_dim]
+            sigma: Tensor[batch, target, y_dim]
+        """
 
     @abc.abstractmethod
     def log_likelihood(self, x_context, y_context, x_target, y_target, num_latents):

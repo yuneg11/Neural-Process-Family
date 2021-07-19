@@ -1,3 +1,6 @@
+from typing import List, Tuple
+from torchtyping import TensorType
+
 import torch
 from torch.nn import functional as F
 
@@ -13,13 +16,13 @@ __all__ = ["CNPBase", "CNP"]
 
 
 class CNPBase(ConditionalNPF):
-    def __init__(self, encoder, decoder):
-        """Conditional Neural Process model
+    """Conditional Neural Process Base"""
 
+    def __init__(self, encoder, decoder):
+        """
         Args:
             encoder (PointwiseEncoder): [batch, context, x_dim + y_dim] -> [batch, context, r_dim]
-            decoder (PointwiseDecoder): [batch, target, x_dim + r_dim] -> [batch, target, y_dim * 2]
-            loss_fn ([type]): [description]
+            decoder (PointwiseDecoder): [batch, target,  x_dim + r_dim] -> [batch, target,  y_dim * 2]
         """
         super().__init__()
 
@@ -28,25 +31,23 @@ class CNPBase(ConditionalNPF):
 
         self.ll_fn = LogLikelihood()
 
-    def forward(self, x_context, y_context, x_target):
-        """
-        Args:
-            x_context: [batch, context, x_dim]
-            y_context: [batch, context, y_dim]
-            x_target:  [batch, target,  x_dim]
-
-        Returns:
-            mu:    [batch, target, y_dim]
-            sigma: [batch, target, y_dim]
-        """
+    def forward(
+        self,
+        x_context: TensorType["batch", "context", "x_dim"],
+        y_context: TensorType["batch", "context", "y_dim"],
+        x_target:  TensorType["batch", "target",  "x_dim"],
+    ) -> Tuple[
+        TensorType["batch", "target", "y_dim"],
+        TensorType["batch", "target", "y_dim"]
+    ]:
 
         context = torch.cat((x_context, y_context), dim=-1)                     # [batch, context, x_dim + y_dim]
-        pointwise_rep = self.encoder(context)                                   # [batch, context, r_dim]
+        r_i_context = self.encoder(context)                                     # [batch, context, r_dim]
 
-        representation = torch.mean(pointwise_rep, dim=1, keepdim=True)         # [batch, 1, r_dim]
-        representation = representation.repeat(1, x_target.shape[1], 1)         # [batch, target, r_dim]
+        r_context = torch.mean(r_i_context, dim=1, keepdim=True)                # [batch, 1, r_dim]
+        r_context = r_context.repeat(1, x_target.shape[1], 1)                   # [batch, target, r_dim]
 
-        query = torch.cat((x_target, representation), dim=-1)                   # [batch, target, x_dim + r_dim]
+        query = torch.cat((x_target, r_context), dim=-1)                        # [batch, target, x_dim + r_dim]
         mu_log_sigma = self.decoder(query)                                      # [batch, target, y_dim * 2]
 
         y_dim = mu_log_sigma.shape[-1] // 2
@@ -55,51 +56,43 @@ class CNPBase(ConditionalNPF):
 
         return mu, sigma
 
-    def log_likelihood(self, x_context, y_context, x_target, y_target):
-        """
-        Args:
-            x_context: [batch, context, x_dim]
-            y_context: [batch, context, y_dim]
-            x_target:  [batch, target,  x_dim]
-            y_target:  [batch, target,  y_dim]
-
-        Returns:
-            log_likelihood: float
-        """
+    def log_likelihood(
+        self,
+        x_context: TensorType["batch", "context", "x_dim"],
+        y_context: TensorType["batch", "context", "y_dim"],
+        x_target:  TensorType["batch", "target",  "x_dim"],
+        y_target:  TensorType["batch", "target",  "y_dim"],
+    ) -> float:
 
         mu, sigma = self(x_context, y_context, x_target)
         log_likelihood = self.ll_fn(y_target, mu, sigma)
 
         return log_likelihood
 
-    def loss(self, x_context, y_context, x_target, y_target):
-        """
-        Args:
-            x_context: [batch, context, x_dim]
-            y_context: [batch, context, y_dim]
-            x_target:  [batch, target,  x_dim]
-            y_target:  [batch, target,  y_dim]
+    def loss(
+        self,
+        x_context: TensorType["batch", "context", "x_dim"],
+        y_context: TensorType["batch", "context", "y_dim"],
+        x_target:  TensorType["batch", "target",  "x_dim"],
+        y_target:  TensorType["batch", "target",  "y_dim"],
+    ) -> float:
 
-        Returns:
-            log_likelihood: float
-        """
-
-        log_likelihood = self.log_likelihood(
-            x_context, y_context, x_target, y_target,
-        )
+        log_likelihood = self.log_likelihood(x_context, y_context, x_target, y_target)
         loss = -log_likelihood
 
         return loss
 
 
 class CNP(CNPBase):
+    """Conditional Neural Process"""
+
     def __init__(
         self,
-        x_dim,
-        y_dim,
-        r_dim,
-        encoder_dims=[128, 128, 128, 128, 128, 128],
-        decoder_dims=[128, 128, 128, 128],
+        x_dim: int,
+        y_dim: int,
+        r_dim: int = 128,
+        encoder_dims: List[int] = [128, 128, 128, 128, 128],
+        decoder_dims: List[int] = [128, 128, 128],
     ):
         encoder = PointwiseMLP(
             in_features=(x_dim + y_dim),
