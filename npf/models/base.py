@@ -1,5 +1,6 @@
 from typing import Tuple
 from torchtyping import TensorType
+from ..type import *
 
 import abc
 
@@ -19,20 +20,16 @@ class NPF(nn.Module):
 
 class ConditionalNPF(NPF):
     @abc.abstractmethod
-    def forward(
-        self,
-        x_context: TensorType["batch", "context", "x_dim"],
-        y_context: TensorType["batch", "context", "y_dim"],
-        x_target:  TensorType["batch", "target",  "x_dim"],
-    ) -> Tuple[
-        TensorType["batch", "target", "y_dim"],
-        TensorType["batch", "target", "y_dim"]
-    ]:
+    def forward(self,
+        x_context: TensorType[B, C, X],
+        y_context: TensorType[B, C, Y],
+        x_target:  TensorType[B, T, X],
+    ) -> Tuple[TensorType[B, T, Y], TensorType[B, T, Y]]:
         """
         Args:
             x_context: Tensor[batch, context, x_dim]
             y_context: Tensor[batch, context, y_dim]
-            x_target:  Tensor[batch, target,  x_dim]
+            x_target:  Tensor[batch,  target, x_dim]
 
         Returns:
             mu:    Tensor[batch, target, y_dim]
@@ -40,72 +37,116 @@ class ConditionalNPF(NPF):
         """
 
     @abc.abstractmethod
-    def log_likelihood(
-        self,
-        x_context: TensorType["batch", "context", "x_dim"],
-        y_context: TensorType["batch", "context", "y_dim"],
-        x_target:  TensorType["batch", "target",  "x_dim"],
-        y_target:  TensorType["batch", "target",  "y_dim"],
-    ) -> float:
+    def log_likelihood(self,
+        x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
+        x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
+    ) -> TensorType[float]:
         """
         Args:
             x_context: Tensor[batch, context, x_dim]
             y_context: Tensor[batch, context, y_dim]
-            x_target:  Tensor[batch, target,  x_dim]
-            y_target:  Tensor[batch, target,  y_dim]
+            x_target:  Tensor[batch,  target, x_dim]
+            y_target:  Tensor[batch,  target, y_dim]
 
         Returns:
-            log_likelihood: float
+            log_likelihood: Tensor[float]
         """
 
     @abc.abstractmethod
-    def loss(
-        self,
-        x_context: TensorType["batch", "context", "x_dim"],
-        y_context: TensorType["batch", "context", "y_dim"],
-        x_target:  TensorType["batch", "target",  "x_dim"],
-        y_target:  TensorType["batch", "target",  "y_dim"],
-    ) -> float:
+    def loss(self,
+        x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
+        x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
+    ) -> TensorType[float]:
         """
         Args:
             x_context: Tensor[batch, context, x_dim]
             y_context: Tensor[batch, context, y_dim]
-            x_target:  Tensor[batch, target,  x_dim]
-            y_target:  Tensor[batch, target,  y_dim]
+            x_target:  Tensor[batch,  target, x_dim]
+            y_target:  Tensor[batch,  target, y_dim]
 
         Returns:
-            log_likelihood: float
+            log_likelihood: Tensor[float]
         """
+
+    @property
+    def is_latent_model(self):
+        return False
 
 
 class LatentNPF(NPF):
     @abc.abstractmethod
-    def forward(
-        self,
-        x_context: TensorType["batch", "context", "x_dim"],
-        y_context: TensorType["batch", "context", "y_dim"],
-        x_target:  TensorType["batch", "target",  "x_dim"],
+    def forward(self,
+        x_context: TensorType[B, C, X],
+        y_context: TensorType[B, C, Y],
+        x_target:  TensorType[B, T, X],
         num_latents: int = 1,
-    ) -> Tuple[
-        TensorType["batch", "latent", "target", "y_dim"],
-        TensorType["batch", "latent", "target", "y_dim"]
-    ]:
+    ) -> Tuple[TensorType[B, L, T, Y], TensorType[B, L, T, Y]]:
         """
         Args:
             x_context: Tensor[batch, context, x_dim]
             y_context: Tensor[batch, context, y_dim]
-            x_target:  Tensor[batch, target,  x_dim]
+            x_target:  Tensor[batch,  target, x_dim]
             num_latents: int
 
         Returns:
-            mu:    Tensor[batch, target, y_dim]
-            sigma: Tensor[batch, target, y_dim]
+            mu:    Tensor[batch, latent, target, y_dim]
+            sigma: Tensor[batch, latent, target, y_dim]
         """
 
     @abc.abstractmethod
-    def log_likelihood(self, x_context, y_context, x_target, y_target, num_latents):
-        raise NotImplementedError
+    def log_likelihood(self,
+        x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
+        x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
+        num_latents: int = 1,
+    ) -> TensorType[float]:
+        """
+        Args:
+            x_context: Tensor[batch, context, x_dim]
+            y_context: Tensor[batch, context, y_dim]
+            x_target:  Tensor[batch,  target, x_dim]
+            y_target:  Tensor[batch,  target, y_dim]
+            num_latents: int
+
+        Returns:
+            log_likelihood: Tensor[float]
+        """
 
     @abc.abstractmethod
-    def loss(self, x_context, y_context, x_target, y_target, num_latents):
-        raise NotImplementedError
+    def vi_loss(self,
+        x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
+        x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
+        num_latents: int = 1,
+    ) -> TensorType[float]:
+        """
+        Args:
+            x_context: Tensor[batch, context, x_dim]
+            y_context: Tensor[batch, context, y_dim]
+            x_target:  Tensor[batch,  target, x_dim]
+            y_target:  Tensor[batch,  target, y_dim]
+            num_latents: int
+
+        Returns:
+            log_likelihood: Tensor[float]
+        """
+
+    @abc.abstractmethod
+    def ml_loss(self,
+        x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
+        x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
+        num_latents: int = 1,
+    ) -> TensorType[float]:
+        """
+        Args:
+            x_context: Tensor[batch, context, x_dim]
+            y_context: Tensor[batch, context, y_dim]
+            x_target:  Tensor[batch,  target, x_dim]
+            y_target:  Tensor[batch,  target, y_dim]
+            num_latents: int
+
+        Returns:
+            log_likelihood: Tensor[float]
+        """
+
+    @property
+    def is_latent_model(self):
+        return True

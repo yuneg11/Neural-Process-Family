@@ -1,2 +1,4 @@
+torch
 torchtyping
+tensorboard
 tqdm
