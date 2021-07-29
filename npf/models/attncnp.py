@@ -1,5 +1,3 @@
-from typing import List, Optional
-from torchtyping import TensorType
 from ..type import *
 
 from torch import nn

@@ -1,14 +1,10 @@
-from typing import List, Tuple, Optional, Union
-from torchtyping import TensorType
 from ..type import *
 
 import math
 
 import torch
 from torch.nn import functional as F
-from torch.distributions import (
-    Normal,
-)
+from torch.distributions import Normal
 
 from .base import LatentNPF
 

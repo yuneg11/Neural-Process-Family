@@ -1,7 +1,6 @@
-from logging import warning
-from typing import List, Optional
-from torchtyping import TensorType
 from ..type import *
+
+from logging import warning
 
 from torch import nn
 

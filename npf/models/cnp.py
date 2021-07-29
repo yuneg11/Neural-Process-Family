@@ -1,5 +1,3 @@
-from typing import List, Tuple
-from torchtyping import TensorType
 from ..type import *
 
 import torch
@@ -25,10 +23,10 @@ class CNPBase(ConditionalNPF):
     ):
         """
         Args:
-            encoder         : [batch, context, x_dim + y_dim]
-                           -> [batch, context, r_dim]
-            decoder         : [batch,  target, x_dim + r_dim]
-                           -> [batch,  target, y_dim * 2]
+            encoder : [batch, context, x_dim + y_dim]
+                   -> [batch, context, r_dim]
+            decoder : [batch,  target, x_dim + r_dim]
+                   -> [batch,  target, y_dim * 2]
         """
         super().__init__()
 
@@ -78,7 +76,6 @@ class CNPBase(ConditionalNPF):
         mu, sigma = self(x_context, y_context, x_target)
         log_likelihood = self.log_likelihood_fn(y_target, mu, sigma)
         log_likelihood = torch.mean(log_likelihood)
-
         return log_likelihood
 
 

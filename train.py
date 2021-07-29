@@ -74,14 +74,14 @@ def main():
     parser.add_argument("model")
     parser.add_argument("data_dir")
     parser.add_argument("-dn", "--dataname")  # TODO: Temporary data name
-    parser.add_argument("-e", "--epochs", type=int, default=4000)
+    parser.add_argument("-e", "--epochs", type=int, default=1000)
     parser.add_argument("-lt", "--loss-type", choices=["vi", "ml"])
     parser.add_argument("-ti", "--test-interval", type=int, default=10)
     parser.add_argument("-lr", "--learning-rate", type=float, default=3e-4)
     parser.add_argument("-wd", "--weight-decay", type=float, default=1e-5)
     parser.add_argument("-d", "--device", type=str, default="cuda:0")
-    parser.add_argument("-log", "--log-dir", type=str, default="./logs")
-    parser.add_argument("-l", "--quite", action="store_true")
+    parser.add_argument("-l", "--log-dir", type=str, default="./logs")
+    parser.add_argument("-q", "--quite", action="store_true")
     args = parser.parse_args()
 
     # Temporary GPU allocation
@@ -120,6 +120,16 @@ def main():
             latent_encoder_dims=[128, 128],
             decoder_dims=[128, 128],
             loss_type=args.loss_type,
+        )
+    elif args.model == "convcnp":
+        model = models.ConvCNP(
+            y_dim=1,
+            conv_net_xl=False,
+        )
+    elif args.model == "convcnpxl":
+        model = models.ConvCNP(
+            y_dim=1,
+            conv_net_xl=True,
         )
     elif args.model == "flownp":
         model = models.FlowNP()

@@ -1,4 +1,3 @@
-from typing import Tuple
 from torchtyping import TensorType
 from ..type import *
 
