@@ -15,7 +15,9 @@ __all__ = [
 
 
 class NPF(nn.Module):
-    pass
+    @property
+    def num_params(self) -> int:
+        return sum([parameter.numel() for parameter in self.parameters()])
 
 
 class ConditionalNPF(NPF):
@@ -52,7 +54,6 @@ class ConditionalNPF(NPF):
             log_likelihood: Tensor[float]
         """
 
-    @abc.abstractmethod
     def loss(self,
         x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
         x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
@@ -65,8 +66,12 @@ class ConditionalNPF(NPF):
             y_target:  Tensor[batch,  target, y_dim]
 
         Returns:
-            log_likelihood: Tensor[float]
+            loss: Tensor[float]
         """
+
+        log_likelihood = self.log_likelihood(x_context, y_context, x_target, y_target)
+        loss = -log_likelihood
+        return loss
 
     @property
     def is_latent_model(self):
@@ -74,6 +79,20 @@ class ConditionalNPF(NPF):
 
 
 class LatentNPF(NPF):
+    def __init__(self,
+        loss_type: str = "vi",
+    ):
+        super().__init__()
+
+        self.loss_type = loss_type
+
+        if loss_type == "vi":
+            self.loss = self.vi_loss
+        elif loss_type == "ml":
+            self.loss = self.ml_loss
+        else:
+            raise ValueError(f"Invalid loss type: '{loss_type}'")
+
     @abc.abstractmethod
     def forward(self,
         x_context: TensorType[B, C, X],
@@ -129,7 +148,6 @@ class LatentNPF(NPF):
             log_likelihood: Tensor[float]
         """
 
-    @abc.abstractmethod
     def ml_loss(self,
         x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
         x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
@@ -144,8 +162,12 @@ class LatentNPF(NPF):
             num_latents: int
 
         Returns:
-            log_likelihood: Tensor[float]
+            loss: Tensor[float]
         """
+
+        log_likelihood = self.log_likelihood(x_context, y_context, x_target, y_target, num_latents)
+        loss = -log_likelihood
+        return loss
 
     @property
     def is_latent_model(self):

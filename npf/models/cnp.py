@@ -19,7 +19,10 @@ __all__ = ["CNPBase", "CNP"]
 class CNPBase(ConditionalNPF):
     """Conditional Neural Process Base"""
 
-    def __init__(self, encoder, decoder):
+    def __init__(self,
+        encoder,
+        decoder,
+    ):
         """
         Args:
             encoder         : [batch, context, x_dim + y_dim]
@@ -32,7 +35,7 @@ class CNPBase(ConditionalNPF):
         self.encoder = encoder
         self.decoder = decoder
 
-        self.ll_fn = LogLikelihood()
+        self.log_likelihood_fn = LogLikelihood()
 
     def _aggregate(self,
         r_i_context: TensorType[B, C, R],
@@ -50,11 +53,14 @@ class CNPBase(ConditionalNPF):
         x_target:  TensorType[B, T, X],
     ) -> Tuple[TensorType[B, T, Y], TensorType[B, T, Y]]:
 
+        # Encode
         context = torch.cat((x_context, y_context), dim=-1)                     # [batch, context, x_dim + y_dim]
         r_i_context = self.encoder(context)                                     # [batch, context, r_dim]
 
+        # Aggregate
         r_context = self._aggregate(r_i_context, x_context, x_target)           # [batch, target, r_dim]
 
+        # Decode
         query = torch.cat((x_target, r_context), dim=-1)                        # [batch, target, x_dim + r_dim]
         mu_log_sigma = self.decoder(query)                                      # [batch, target, y_dim * 2]
 
@@ -70,20 +76,10 @@ class CNPBase(ConditionalNPF):
     ) -> TensorType[float]:
 
         mu, sigma = self(x_context, y_context, x_target)
-        log_likelihood = self.ll_fn(y_target, mu, sigma)
+        log_likelihood = self.log_likelihood_fn(y_target, mu, sigma)
         log_likelihood = torch.mean(log_likelihood)
 
         return log_likelihood
-
-    def loss(self,
-        x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
-        x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
-    ) -> TensorType[float]:
-
-        log_likelihood = self.log_likelihood(x_context, y_context, x_target, y_target)
-        loss = -log_likelihood
-
-        return loss
 
 
 class CNP(CNPBase):

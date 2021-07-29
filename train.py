@@ -102,8 +102,9 @@ def main():
     elif args.model == "np":
         model = models.NP(
             x_dim=1, y_dim=1, r_dim=128, z_dim=128,
-            deterministic_encoder_dims=[128, 128],
+            determ_encoder_dims=[128, 128],
             latent_encoder_dims=[128, 128],
+            decoder_dims=[128, 128],
             loss_type=args.loss_type,
         )
     elif args.model == "attncnp":
@@ -111,6 +112,14 @@ def main():
             x_dim=1, y_dim=1, r_dim=128,
             encoder_dims=[128, 128],
             decoder_dims=[128, 128],
+        )
+    elif args.model == "attnnp":
+        model = models.AttnNP(
+            x_dim=1, y_dim=1, r_dim=128, z_dim=128,
+            determ_encoder_dims=[128, 128],
+            latent_encoder_dims=[128, 128],
+            decoder_dims=[128, 128],
+            loss_type=args.loss_type,
         )
     elif args.model == "flownp":
         model = models.FlowNP()
@@ -126,8 +135,7 @@ def main():
     model.to(args.device)
 
     if not args.quite:
-        n_params = sum([parameter.numel() for parameter in model.parameters()])
-        print(f"Model params: {n_params}")
+        print(f"Model params: {model.num_params}")
 
     # Data
     train_loader = CachedDataLoader(path.join(args.data_dir, "train.pt"), device=args.device, reuse=False)

@@ -4,11 +4,15 @@ from ..type import *
 
 import torch
 from torch import nn
-from torch.distributions import Normal
+from torch.distributions import (
+    Normal,
+    kl_divergence,
+)
 
 
 __all__ = [
     "LogLikelihood",
+    "KLDivergence",
 ]
 
 
@@ -26,5 +30,15 @@ class LogLikelihood(nn.Module):
         distribution = Normal(mu, sigma)                                        # [batch, (latent,) target, y_dim]
         log_prob = distribution.log_prob(y_target)                              # [batch, (latent,) target, y_dim]
         log_likelihood = log_prob.sum(dim=-1)                                   # [batch, (latent,) target]
-
         return log_likelihood
+
+
+class KLDivergence(nn.Module):
+    @staticmethod
+    def forward(
+        z_data: TensorType[B, 1, Z],
+        z_context: TensorType[B, 1, Z],
+    ) -> TensorType[B, 1, Z]:
+
+        kl_div = kl_divergence(z_data, z_context)                               # [batch, 1, z_dim]
+        return kl_div
