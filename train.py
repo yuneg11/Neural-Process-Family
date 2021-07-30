@@ -124,12 +124,12 @@ def main():
     elif args.model == "convcnp":
         model = models.ConvCNP(
             y_dim=1,
-            conv_net_xl=False,
+            cnn_xl=False,
         )
     elif args.model == "convcnpxl":
         model = models.ConvCNP(
             y_dim=1,
-            conv_net_xl=True,
+            cnn_xl=True,
         )
     elif args.model == "flownp":
         model = models.FlowNP()

@@ -79,7 +79,7 @@ class ConditionalNPF(NPF):
 
 class LatentNPF(NPF):
     def __init__(self,
-        loss_type: str = "vi",
+        loss_type: str,
     ):
         super().__init__()
 

@@ -26,25 +26,30 @@ class ConvCNPBase(ConditionalNPF):
     def __init__(self,
         discretizer,
         encoder,
-        conv_net,
+        cnn,
         decoder,
     ):
         """
         Args:
-            discretizer : [batch, context, x_dim], [batch, target, x_dim]
+            discretizer : [[batch, context, x_dim]
+                           [batch, target, x_dim]]
                        -> [1, descrete, 1]
-            encoder     : [batch, descrete, x_dim], [batch, context, x_dim], [batch, context, y_dim]
+            encoder     : [[batch, descrete, x_dim]
+                           [batch, context, x_dim]
+                           [batch, context, y_dim]]
                        -> [batch, discrete, y_dim + 1]
-            conv_net    : [batch, y_dim + 1, discrete]
+            cnn         : [batch, y_dim + 1, discrete]
                        -> [batch, y_dim * 2, discrete]
-            decoder     : [batch, target, x_dim], [batch, discrete, x_dim], [batch, discrete, y_dim]
+            decoder     : [[batch, target, x_dim]
+                           [batch, discrete, x_dim]
+                           [batch, discrete, y_dim]]
                        -> [batch, target, y_dim]
         """
         super().__init__()
 
         self.discretizer = discretizer
         self.encoder = encoder
-        self.conv_net = conv_net
+        self.cnn = cnn
         self.decoder = decoder
 
         self.log_likelihood_fn = LogLikelihood()
@@ -63,7 +68,7 @@ class ConvCNPBase(ConditionalNPF):
         h = h.transpose(2, 1)                                                   # [batch, y_dim + 1, discrete]
 
         # Convolution
-        mu_log_sigma = self.conv_net(h)                                         # [batch, y_dim * 2, discrete]
+        mu_log_sigma = self.cnn(h)                                              # [batch, y_dim * 2, discrete]
         mu_log_sigma = mu_log_sigma.transpose(2, 1)                             # [batch, discrete, y_dim * 2]
 
         y_dim = mu_log_sigma.shape[-1] // 2
@@ -90,20 +95,20 @@ class ConvCNPBase(ConditionalNPF):
 class ConvCNP(ConvCNPBase):
     def __init__(self,
         y_dim: int,
-        conv_net_dims: Optional[List[int]] = None,
-        conv_net_xl: bool = False,
+        cnn_dims: Optional[List[int]] = None,
+        cnn_xl: bool = False,
         points_per_unit: int = 64,
         discrete_margin: float = 0.1,
     ):
-        if conv_net_xl:
+        if cnn_xl:
             ConvNet = UNet
-            if conv_net_dims is None:
-                conv_net_dims = [8, 16, 16, 32, 32, 64]
-            num_halving_layers = len(conv_net_dims)
+            if cnn_dims is None:
+                cnn_dims = [8, 16, 16, 32, 32, 64]
+            num_halving_layers = len(cnn_dims)
         else:
             ConvNet = SimpleConvNet
-            if conv_net_dims is None:
-                conv_net_dims = [16, 32, 16]
+            if cnn_dims is None:
+                cnn_dims = [16, 32, 16]
             num_halving_layers = 0
 
         init_log_scale = math.log(2.0 / points_per_unit)
@@ -119,10 +124,10 @@ class ConvCNP(ConvCNPBase):
             init_log_scale=init_log_scale,
         )
 
-        conv_net = ConvNet(
+        cnn = ConvNet(
             dimension=1,
             in_channels=(y_dim + 1),
-            hidden_channels=conv_net_dims,
+            hidden_channels=cnn_dims,
             out_channels=(y_dim * 2),
         )
 
@@ -133,6 +138,6 @@ class ConvCNP(ConvCNPBase):
         super().__init__(
             discretizer=discretizer,
             encoder=encoder,
-            conv_net=conv_net,
+            cnn=cnn,
             decoder=decoder,
         )

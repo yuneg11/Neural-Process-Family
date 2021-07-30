@@ -33,16 +33,16 @@ class AttnNPBase(NPBase):
             determ_encoder  : [batch, context, x_dim + y_dim]
                            -> [batch, context, r_dim]
             cross_attention : [batch, context, r_dim]
-                           -> [batch,  target, r_dim]
-            decoder         : [batch,  latent, target, x_dim (+ r_dim) + z_dim]
-                           -> [batch,  latent, target, y_dim * 2]
+                           -> [batch, target, r_dim]
+            decoder         : [batch, latent, target, x_dim (+ r_dim) + z_dim]
+                           -> [batch, latent, target, y_dim * 2]
             loss_type       : str ("vi" or "ml")
         """
         super().__init__(
             latent_encoder=latent_encoder,
             determ_encoder=determ_encoder,
             decoder=decoder,
-            loss_type=loss_type,
+            loss_type=("vi" if loss_type is None else loss_type),
         )
 
         self.cross_attention = cross_attention

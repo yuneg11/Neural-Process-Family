@@ -10,7 +10,6 @@ from .base import LatentNPF
 
 from ..modules import (
     MLP,
-    Sample,
     LogLikelihood,
     KLDivergence,
 )
@@ -34,8 +33,8 @@ class NPBase(LatentNPF):
                           -> [batch, context, z_dim * 2]
             determ_encoder : [batch, context, x_dim + y_dim]
                           -> [batch, context, r_dim]
-            decoder        : [batch,  latent, target, x_dim (+ r_dim) + z_dim]
-                          -> [batch,  latent, target, y_dim * 2]
+            decoder        : [batch, latent, target, x_dim (+ r_dim) + z_dim]
+                          -> [batch, latent, target, y_dim * 2]
             loss_type      : str ("vi" or "ml")
         """
         super().__init__(
@@ -61,7 +60,6 @@ class NPBase(LatentNPF):
 
         self.decoder = decoder
 
-        self.sample_fn = Sample()
         self.log_likelihood_fn = LogLikelihood()
         self.kl_divergence_fn = KLDivergence()
 
@@ -174,8 +172,8 @@ class NPBase(LatentNPF):
         z_i_context, r_i_context = self._encode(context)                        # [batch, context, z_dim], [batch, context, r_dim]
 
         # Latent representation
-        z_dist = self._latent_dist(z_i_context)                                 # [batch, 1, z_dim]
-        z_samples = self.sample_fn(z_dist, num_latents)                         # [batch, latent, 1, z_dim]
+        z_context = self._latent_dist(z_i_context)                              # Normal[batch, 1, z_dim]
+        z_samples = z_context.rsample([num_latents]).transpose(1, 0)            # [batch, latent, 1, z_dim]
 
         # Deterministic representation
         if r_i_context is not None:
@@ -222,10 +220,10 @@ class NPBase(LatentNPF):
         z_i_data = self._latent_encode_only(data)                               # [batch, context + target, z_dim]
 
         # Latent representation
-        z_context = self._latent_dist(z_i_context)                              # [batch, 1, z_dim]
-        z_data    = self._latent_dist(z_i_data)                                 # [batch, 1, z_dim]
+        z_context = self._latent_dist(z_i_context)                              # Normal[batch, 1, z_dim]
+        z_data    = self._latent_dist(z_i_data)                                 # Normal[batch, 1, z_dim]
 
-        z_samples = self.sample_fn(z_context, num_latents)                      # [batch, latent, 1, z_dim]
+        z_samples = z_context.rsample([num_latents]).transpose(1, 0)            # [batch, latent, 1, z_dim]
 
         # Deterministic representation
         if r_i_context is not None:

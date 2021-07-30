@@ -25,8 +25,8 @@ class CNPBase(ConditionalNPF):
         Args:
             encoder : [batch, context, x_dim + y_dim]
                    -> [batch, context, r_dim]
-            decoder : [batch,  target, x_dim + r_dim]
-                   -> [batch,  target, y_dim * 2]
+            decoder : [batch, target, x_dim + r_dim]
+                   -> [batch, target, y_dim * 2]
         """
         super().__init__()
 

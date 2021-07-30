@@ -27,9 +27,9 @@ class AttnCNPBase(CNPBase):
             encoder         : [batch, context, x_dim + y_dim]
                            -> [batch, context, r_dim]
             cross_attention : [batch, context, r_dim]
-                           -> [batch,  target, r_dim]
-            decoder         : [batch,  target, x_dim + r_dim]
-                           -> [batch,  target, y_dim * 2]
+                           -> [batch, target, r_dim]
+            decoder         : [batch, target, x_dim + r_dim]
+                           -> [batch, target, y_dim * 2]
         """
         super().__init__(
             encoder=encoder,
