@@ -147,8 +147,8 @@ def main(
         # Latent models
         NP=(get_model("np", device), True),
         AttnNP=(get_model("attnnp", device), True),
-        ConvNP=(get_model("convnp", device), False),
-        ConvNPXL=(get_model("convnpxl", device), False),
+        ConvNP=(get_model("convnp", device), True),
+        ConvNPXL=(get_model("convnpxl", device), True),
     )
 
     max_m_len = max(map(len, models.keys()))

@@ -36,9 +36,9 @@ class LogLikelihood(nn.Module):
 class KLDivergence(nn.Module):
     @staticmethod
     def forward(
-        z_data: TensorType[B, 1, Z],
-        z_context: TensorType[B, 1, Z],
-    ) -> TensorType[B, 1, Z]:
+        z_data:    TensorType[...],
+        z_context: TensorType[...],
+    ) -> TensorType[...]:
 
         kl_div = kl_divergence(z_data, z_context)                               # [batch, 1, z_dim]
         return kl_div

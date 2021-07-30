@@ -18,7 +18,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 
 
 def train(model, dataloader, optimizer, device=None):
-    model.eval()
+    model.train()
 
     losses = []
 
@@ -46,7 +46,7 @@ def train(model, dataloader, optimizer, device=None):
 
 
 def test(model, dataloader, device=None):
-    model.train()
+    model.eval()
 
     log_likelihoods = []
 
@@ -130,6 +130,20 @@ def main():
         model = models.ConvCNP(
             y_dim=1,
             cnn_xl=True,
+        )
+    elif args.model == "convnp":
+        model = models.ConvNP(
+            y_dim=1, z_dim=8,
+            determ_cnn_xl=False,
+            latent_cnn_xl=False,
+            loss_type=args.loss_type,
+        )
+    elif args.model == "convnpxl":
+        model = models.ConvNP(
+            y_dim=1, z_dim=8,
+            determ_cnn_xl=True,
+            latent_cnn_xl=True,
+            loss_type=args.loss_type,
         )
     elif args.model == "flownp":
         model = models.FlowNP()

@@ -135,9 +135,11 @@ class SetConv1dDecoder(SetConvBase):
     def forward(self,
         query: TensorType[B, T, QK],
         key:   TensorType[B, S, QK],
-        value: TensorType[B, S, V],
-    ) -> TensorType[B, T, V]:
+        value: Union[TensorType[B, S, V], TensorType[B, L, S, V]],
+    ) -> Union[TensorType[B, T, V], TensorType[B, L, T, V]]:
 
         weight = self.get_weight(query, key)                                    # [batch, target, source]
+        if value.dim() == 4:
+            weight = weight[:, None, :, :]                                      # [batch, 1, target, source]
         value = torch.matmul(weight, value)                                     # [batch, target, v_dim]
-        return value
+        return value                                                            # or [batch, latent, target, v_dim]
