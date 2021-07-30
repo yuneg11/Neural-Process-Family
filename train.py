@@ -143,10 +143,11 @@ else:
 model.to(device)
 
 # Perform training.
-opt = torch.optim.Adam(model.parameters(),
-                       args.learning_rate,
-                       weight_decay=args.weight_decay)
 if args.train:
+    opt = torch.optim.Adam(model.parameters(),
+                           args.learning_rate,
+                           weight_decay=args.weight_decay)
+
     # Run the training loop, maintaining the best objective value.
     best_obj = -np.inf
     for epoch in range(args.epochs):

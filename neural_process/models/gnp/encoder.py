@@ -20,9 +20,9 @@ class SetConv1dEncoder(nn.Module):
         if True:
             # Construct grid and density.
             # x_grid = self.discretisation(xz, x)
-            x_grid = self.discretisation(xz, x).cuda()
+            x_grid = self.discretisation(xz, x).to(z.device)
             # density_channel = torch.ones((*z.shape[:2], 1), dtype=z.dtype).to(x.device)
-            density_channel = torch.ones((*z.shape[:2], 1), dtype=z.dtype).cuda()
+            density_channel = torch.ones_like(z)
 
         # Prepend density channel.
         z = torch.cat((density_channel, z), dim=2)
@@ -67,12 +67,14 @@ class SetConv2dEncoder(nn.Module):
             ).cuda()
 
         # Prepend density channel.
+        z = z.cuda()
         z = B.concat(density_channel, z, axis=2)
 
         # Put feature/channel dimension second and make a four-tensor.
         z = B.transpose(z)[..., None]
 
         # Compute interpolation weights.
+        xz = xz.cuda()
         dists2 = B.pw_dists2(xz, x_grid[None, :])
         weights = B.exp(-0.5 * dists2 / B.exp(2 * self.log_scale))
         weights = weights[:, None, :, :]  # Insert channel dimension.

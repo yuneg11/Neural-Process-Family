@@ -80,15 +80,16 @@ class Sampler(nn.Module):
 
 
 class Discretizer:
-    def __init__(self, points_per_unit, multiplier):
+    def __init__(self, points_per_unit, multiplier, margin=0.1):
         self.points_per_unit = points_per_unit
         self.multiplier = multiplier
+        self.margin = margin
 
     def __call__(self, x_context, x_target):
         x_min = min(torch.min(x_context).cpu().numpy(),
-                    torch.min(x_target).cpu().numpy(), -2.) - 0.1
+                    torch.min(x_target).cpu().numpy()) - self.margin
         x_max = max(torch.max(x_context).cpu().numpy(),
-                    torch.max(x_target).cpu().numpy(), 2.) + 0.1
+                    torch.max(x_target).cpu().numpy()) + self.margin
 
         x = self.points_per_unit * (x_max - x_min)
         if x % self.multiplier == 0:

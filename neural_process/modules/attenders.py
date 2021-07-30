@@ -4,31 +4,6 @@ import torch
 from torch import nn
 
 
-# class BaseAttender(nn.Module):
-#     def __init__(self, query_net, key_net, value_net):
-#         super().__init__()
-#
-#         self.query_net = query_net
-#         self.key_net = key_net
-#         self.value_net = value_net
-#
-#     def forward(self, r_i, x_context, x_target):
-#         value = self.value_net(r_i)
-#         key = self.key_net(x_context)
-#         query = self.query_net(x_target)
-#         # TODO
-#
-#     # TODO: calculate_weight
-#
-#
-# class DotProductAttender(BaseAttender):
-#     def calculate_weight(self, query, key):
-#         dk = key.shape[-1]
-#         logit = torch.bmm(query, key.permute(0, 2, 1)) / np.sqrt(dk)
-#         weight = nn.functional.softmax(logit, dim=-1)
-#         return weight
-
-
 """
     Attention modules for AttnCNP
 """
