@@ -74,7 +74,7 @@ class ConvNPBase(LatentNPF):
 
     def _latent_conv(self,
         z_samples: TensorType[L, B, Z, D],
-    ) -> Tuple[TensorType[B, L, D, Y], TensorType[B, L, D, Y]]:
+    ) -> Tuple[TensorType[B, L, Y, D], TensorType[B, L, Y, D]]:
 
         num_latents, num_batches, z_dim, num_discretes = z_samples.shape
         z_samples = \
@@ -83,11 +83,11 @@ class ConvNPBase(LatentNPF):
         mu_log_sigma = self.latent_cnn(z_samples)                               # [latent * batch, y_dim * 2, discrete]
         mu_log_sigma = \
             mu_log_sigma.view(num_latents, num_batches, -1, num_discretes)      # [latent, batch, y_dim * 2, discrete]
-        mu_log_sigma = mu_log_sigma.permute(1, 0, 3, 2)                         # [batch, latent, discrete, y_dim * 2]
+        mu_log_sigma = mu_log_sigma.transpose(0, 1)                             # [batch, latent, y_dim * 2, discrete]
 
-        y_dim = mu_log_sigma.shape[-1] // 2
-        mu, log_sigma = torch.split(mu_log_sigma, (y_dim, y_dim), dim=-1)       # [batch, latent, discrete, y_dim] * 2
-        sigma = F.softplus(log_sigma)
+        y_dim = mu_log_sigma.shape[2] // 2
+        mu, log_sigma = mu_log_sigma.split((y_dim, y_dim), dim=2)               # [batch, latent, y_dim, discrete] * 2
+        sigma = F.softplus(log_sigma)                                           # [batch, latent, y_dim, discrete]
 
         return mu, sigma
 
@@ -102,8 +102,7 @@ class ConvNPBase(LatentNPF):
         x_grid = self.discretizer(x_context, x_target)                          # [batch, discrete, x_dim]
 
         # Encode
-        h = self.encoder(x_grid, x_context, y_context)                          # [batch, discrete, y_dim + 1]
-        h = h.transpose(-1, -2)                                                 # [batch, y_dim + 1, discrete]
+        h = self.encoder(x_grid, x_context, y_context)                          # [batch, y_dim + 1, discrete]
 
         # Deterministic Convolution
         z_context_mu_log_sigma = self.determ_cnn(h)                             # [batch, z_dim * 2, discrete]
@@ -113,11 +112,11 @@ class ConvNPBase(LatentNPF):
         z_samples = z_context.rsample([num_latents])                            # [latent, batch, z_dim, discrete]
 
         # Latent Convolution
-        mu, sigma = self._latent_conv(z_samples)                                # [batch, latent, discrete, y_dim] * 2
+        mu, sigma = self._latent_conv(z_samples)                                # [batch, latent, y_dim, discrete] * 2
 
         # Decode
-        mu    = self.decoder(x_target, x_grid, mu)                              # [batch, target, y_dim]
-        sigma = self.decoder(x_target, x_grid, sigma)                           # [batch, target, y_dim]
+        mu    = self.decoder(x_target, x_grid, mu)                              # [batch, latent, target, y_dim]
+        sigma = self.decoder(x_target, x_grid, sigma)                           # [batch, latent, target, y_dim]
 
         return mu, sigma
 
@@ -134,11 +133,8 @@ class ConvNPBase(LatentNPF):
         x_grid = self.discretizer(x_context, x_target)                          # [batch, discrete, x_dim]
 
         # Encode
-        h_context = self.encoder(x_grid, x_context, y_context)                  # [batch, discrete, y_dim + 1]
-        h_context = h_context.transpose(-1, -2)                                 # [batch, y_dim + 1, discrete]
-
-        h_data = self.encoder(x_grid, x_data, y_data)                           # [batch, discrete, y_dim + 1]
-        h_data = h_data.transpose(-1, -2)                                       # [batch, y_dim + 1, discrete]
+        h_context = self.encoder(x_grid, x_context, y_context)                  # [batch, y_dim + 1, discrete]
+        h_data    = self.encoder(x_grid, x_data, y_data)                        # [batch, y_dim + 1, discrete]
 
         # Deterministic Convolution
         z_context_mu_log_sigma = self.determ_cnn(h_context)                     # [batch, z_dim * 2, discrete]
@@ -147,15 +143,14 @@ class ConvNPBase(LatentNPF):
         # Latent Sample
         z_context = self._latent_dist(z_context_mu_log_sigma)                   # Normal[batch, z_dim, discrete]
         z_data    = self._latent_dist(z_data_mu_log_sigma)                      # Normal[batch, z_dim, discrete]
-
         z_samples = z_context.rsample([num_latents])                            # [latent, batch, z_dim, discrete]
 
         # Latent Convolution
-        mu, sigma = self._latent_conv(z_samples)                                # [batch, latent, discrete, y_dim] * 2
+        mu, sigma = self._latent_conv(z_samples)                                # [batch, latent, y_dim, discrete] * 2
 
         # Decode
-        mu    = self.decoder(x_target, x_grid, mu)                              # [batch, target, y_dim]
-        sigma = self.decoder(x_target, x_grid, sigma)                           # [batch, target, y_dim]
+        mu    = self.decoder(x_target, x_grid, mu)                              # [batch, latent, target, y_dim]
+        sigma = self.decoder(x_target, x_grid, sigma)                           # [batch, latent, target, y_dim]
 
         # Loss
         log_likelihood = self._log_likelihood(y_target, mu, sigma)              # [batch, latent, target]
@@ -236,6 +231,7 @@ class ConvNP(ConvNPBase):
 
         decoder = SetConv1dDecoder(
             init_log_scale=init_log_scale,
+            dim_last=True,
         )
 
         super().__init__(
@@ -246,69 +242,3 @@ class ConvNP(ConvNPBase):
             decoder=decoder,
             loss_type=loss_type,
         )
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-"""
-Node(inputs=["x_context", "x_target"],                                     Node(inputs=["x_context", "x_target"],
-     outputs=["x_grid"],                                                        outputs=["x_grid"],
-     func=self.discretizer),                                                    func=self.discretizer),
-Node(inputs=["x_context", "y_context", "x_grid"],                          Node(inputs=["x_context", "y_context", "x_grid"],
-     outputs=["representation"],                                                outputs=["representation"],
-     func=self.encoder),                                                        func=self.encoder),
-
-Node(inputs=["representation"],
-     outputs=["f_representation"],
-     func=self.decoder),
-
-                                                                           Node(inputs=["representation"],
-                                                                                outputs=["f_noise"],
-                                                                                func=self.noise_decoder),
-                                                                           Node(inputs=["f_noise"],
-                                                                                outputs=["q_context"],
-                                                                                func=self.distributor),
-                                                                           Node(inputs=["q_context", "num_latents"],
-                                                                                outputs=["z_samples"],
-                                                                                func=self.sampler),
-                                                                           Node(inputs=["z_samples"],
-                                                                                outputs=["f_representation"],
-                                                                                func=self.decoder),
-
-Node(inputs=["x_grid", "f_representation", "x_target"],                    Node(inputs=["x_grid", "f_representation", "x_target"],
-     outputs=["mu"],                                                            outputs=["mu"],
-     func=self.mu_set_conv),                                                    func=self.mu_set_conv),
-Node(inputs=["x_grid", "f_representation", "x_target"],                    Node(inputs=["x_grid", "f_representation", "x_target"],
-     outputs=["sigma"],                                                         outputs=["sigma"],
-     func=self.sigma_set_conv),                                                 func=self.sigma_set_conv),
-Node(inputs=["mu", "sigma", "y_target"],                                   Node(inputs=["mu", "sigma", "y_target"],
-     outputs=["log_likelihood"],                                                outputs=["log_likelihood"],
-     func=self.log_likelihood),                                                 func=self.log_likelihood),
-Node(inputs=["log_likelihood", "x_target"],                                Node(inputs=["log_likelihood", "x_target"],
-     outputs=["loss"],                                                          outputs=["loss"],
-     func=self.loss_function),                                                  func=self.loss_function),
-"""

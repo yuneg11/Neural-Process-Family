@@ -35,27 +35,6 @@ class UnivariateNPF(NPF):
     Base class for univariate NPF models
     """
 
-    @staticmethod
-    def _log_likelihood(
-        y_target: Union[TensorType[B, T, Y], TensorType[B, 1, T, Y]],
-        mu:       Union[TensorType[B, T, Y], TensorType[B, L, T, Y]],
-        sigma:    Union[TensorType[B, T, Y], TensorType[B, L, T, Y]],
-    ) -> Union[TensorType[B, T], TensorType[B, L, T]]:
-
-        distribution = Normal(mu, sigma)                                        # [batch, (latent,) target, y_dim]
-        log_prob = distribution.log_prob(y_target)                              # [batch, (latent,) target, y_dim]
-        log_likelihood = torch.sum(log_prob, dim=-1)                            # [batch, (latent,) target]
-        return log_likelihood
-
-    @staticmethod
-    def _kl_divergence(
-        z_data:    TensorType[...],
-        z_context: TensorType[...],
-    ) -> TensorType[...]:
-
-        kl_div = kl_divergence(z_data, z_context)
-        return kl_div
-
 
 class ConditionalNPF(UnivariateNPF):
     """
@@ -63,6 +42,18 @@ class ConditionalNPF(UnivariateNPF):
     """
 
     is_latent_model = False
+
+    @staticmethod
+    def _log_likelihood(
+        y_target: TensorType[B, T, Y],
+        mu:       TensorType[B, T, Y],
+        sigma:    TensorType[B, T, Y],
+    ) -> TensorType[B, T]:
+
+        distribution = Normal(mu, sigma)                                        # [batch, target, y_dim]
+        log_prob = distribution.log_prob(y_target)                              # [batch, target, y_dim]
+        log_likelihood = torch.sum(log_prob, dim=-1)                            # [batch, target]
+        return log_likelihood
 
     @abc.abstractmethod
     def forward(self,
@@ -131,6 +122,28 @@ class LatentNPF(UnivariateNPF):
 
     is_latent_model = True
 
+    @staticmethod
+    def _log_likelihood(
+        y_target: TensorType[B, T, Y],
+        mu:       TensorType[B, L, T, Y],
+        sigma:    TensorType[B, L, T, Y],
+    ) -> TensorType[B, L, T]:
+
+        y_target = y_target[:, None, :, :]                                      # [batch, 1, target, y_dim]
+        distribution = Normal(mu, sigma)                                        # [batch, latent, target, y_dim]
+        log_prob = distribution.log_prob(y_target)                              # [batch, latent, target, y_dim]
+        log_likelihood = torch.sum(log_prob, dim=-1)                            # [batch, latent, target]
+        return log_likelihood
+
+    @staticmethod
+    def _kl_divergence(
+        z_data:    TensorType[...],
+        z_context: TensorType[...],
+    ) -> TensorType[...]:
+
+        kl_div = kl_divergence(z_data, z_context)
+        return kl_div
+
     def __init__(self,
         loss_type: str,
     ):
@@ -182,7 +195,6 @@ class LatentNPF(UnivariateNPF):
         """
 
         mu, sigma = self(x_context, y_context, x_target, num_latents)           # [batch, latent, target, y_dim] * 2
-        y_target = y_target.unsqueeze(dim=1)                                    # [batch, 1, target, y_dim]
 
         log_likelihood = self._log_likelihood(y_target, mu, sigma)              # [batch, latent, target]
         log_likelihood = torch.mean(log_likelihood, dim=-1)                     # [batch, latent]
@@ -197,7 +209,7 @@ class LatentNPF(UnivariateNPF):
         x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
         num_latents: int = 1,
     ) -> TensorType[float]:
-        raise NotImplementedError  # Implementation is choosed at __init__
+        raise NotImplementedError  # The implementation is chosen from __init__
 
     @abc.abstractmethod
     def vi_loss(self,

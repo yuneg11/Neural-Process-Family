@@ -64,12 +64,12 @@ class NPBase(LatentNPF):
     def _encode(self,
         context: TensorType[B, C, X + Y],
     ) -> Tuple[TensorType[B, C, Z], TensorType[B, C, R]]:
-        raise NotImplementedError  # Implementation is choosed at __init__
+        raise NotImplementedError  # The implementation is chosen from __init__
 
     def _latent_encode_only(self,
         data: TensorType[B, C + T, X + Y],
     ) -> TensorType[B, C + T, Z]:
-        raise NotImplementedError  # Implementation is choosed at __init__
+        raise NotImplementedError  # The implementation is chosen from __init__
 
     def _common_encode(self,
         context: TensorType[B, C, X + Y],

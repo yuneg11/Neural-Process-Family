@@ -63,16 +63,14 @@ class ConvCNPBase(ConditionalNPF):
         x_grid = self.discretizer(x_context, x_target)                          # [batch, discrete, x_dim]
 
         # Encode
-        h = self.encoder(x_grid, x_context, y_context)                          # [batch, discrete, y_dim + 1]
-        h = h.transpose(-1, -2)                                                 # [batch, y_dim + 1, discrete]
+        h = self.encoder(x_grid, x_context, y_context)                          # [batch, y_dim + 1, discrete]
 
         # Convolution
         mu_log_sigma = self.cnn(h)                                              # [batch, y_dim * 2, discrete]
-        mu_log_sigma = mu_log_sigma.transpose(-1, -2)                           # [batch, discrete, y_dim * 2]
 
-        y_dim = mu_log_sigma.shape[-1] // 2
-        mu, log_sigma = torch.split(mu_log_sigma, (y_dim, y_dim), dim=-1)       # [batch, discrete, y_dim] * 2
-        sigma = F.softplus(log_sigma)                                           # [batch, target, y_dim]
+        y_dim = mu_log_sigma.shape[1] // 2
+        mu, log_sigma = mu_log_sigma.split((y_dim, y_dim), dim=1)               # [batch, y_dim, discrete] * 2
+        sigma = F.softplus(log_sigma)                                           # [batch, y_dim, discrete]
 
         # Decode
         mu    = self.decoder(x_target, x_grid, mu)                              # [batch, target, y_dim]
@@ -126,6 +124,7 @@ class ConvCNP(ConvCNPBase):
 
         decoder = SetConv1dDecoder(
             init_log_scale=init_log_scale,
+            dim_last=True,
         )
 
         super().__init__(

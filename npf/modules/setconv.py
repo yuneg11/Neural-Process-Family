@@ -13,8 +13,8 @@ __all__ = [
     "Discretization1d",
     "SetConv1dEncoder",
     "SetConv1dDecoder",
-    # "SetConv2dEncoder",
-    # "SetConv2dDecoder",
+    "SetConv2dEncoder",
+    "SetConv2dDecoder",
 ]
 
 
@@ -73,10 +73,10 @@ class SetConvBase(nn.Module):
 
     @abc.abstractmethod
     def forward(self,
-        query: TensorType[B, T, Q],
-        key:   TensorType[B, S, K],
-        value: TensorType[B, S, V],
-    ) -> Union[TensorType[B, T, V + 1], TensorType[B, T, V]]:
+        query: TensorType[...],
+        key:   TensorType[...],
+        value: TensorType[...],
+    ) -> TensorType[...]:
         """
         Args:
             query: location to interpolate
@@ -94,7 +94,7 @@ class SetConvBase(nn.Module):
     ) -> TensorType[B, N, M]:
 
         if a.shape[-1] == 1 and b.shape[-1] == 1:
-            distance = (a - b.transpose(2, 1)) ** 2
+            distance = (a - b.transpose(1, 2)) ** 2
         else:
             a_norm = torch.sum(a ** 2, axis=-1)[..., :, None]
             b_norm = torch.sum(b ** 2, axis=-1)[..., None, :]
@@ -116,30 +116,87 @@ class SetConv1dEncoder(SetConvBase):
         query: TensorType[B, T, QK],
         key:   TensorType[B, S, QK],
         value: TensorType[B, S, V],
-    ) -> TensorType[B, T, V + 1]:
+    ) -> TensorType[B, V + 1, T]:
 
-        density = torch.ones((*value.shape[:-1], 1), device=value.device)       # [batch, source, 1]
-        value = torch.cat((density, value), dim=-1)                             # [batch, source, v_dim + 1]
+        density = torch.ones((*value.shape[:2], 1), device=value.device)        # [batch, source, 1]
+        value = torch.cat((density, value), dim=2)                              # [batch, source, v_dim + 1]
+        value = value.transpose(2, 1)                                           # [batch, v_dim + 1, source]
 
-        weight = self._get_weight(query, key)                                   # [batch, target, source]
-        value = torch.matmul(weight, value)                                     # [batch, target, v_dim + 1]
-        value = torch.cat((                                                     # [batch, target, v_dim + 1]
-            value[..., :1],
-            value[..., 1:] / (value[..., :1] + 1e-8)
-        ), axis=-1)
+        weight = self._get_weight(key, query)                                   # [batch, source, target]
+        value = torch.matmul(value, weight)                                     # [batch, v_dim + 1, target]
+        value = torch.cat((                                                     # [batch, v_dim + 1, target]
+            value[:, :1, ...],
+            value[:, 1:, ...] / (value[:, :1, ...] + 1e-8)
+        ), axis=1)
 
         return value
 
 
 class SetConv1dDecoder(SetConvBase):
+    def __init__(self,
+        init_log_scale: float,
+        dim_last: bool = True,
+    ):
+        super().__init__(init_log_scale=init_log_scale)
+        self.dim_last = dim_last
+
     def forward(self,
         query: TensorType[B, T, QK],
         key:   TensorType[B, S, QK],
-        value: Union[TensorType[B, S, V], TensorType[B, L, S, V]],
-    ) -> Union[TensorType[B, T, V], TensorType[B, L, T, V]]:
+        value: Union[TensorType[B, V, S], TensorType[B, L, V, S]],
+    ) -> Union[
+        TensorType[B, V, T], TensorType[B, L, V, T],
+        TensorType[B, T, V], TensorType[B, L, T, V],
+    ]:
+
+        weight = self._get_weight(key, query)                                   # [batch, source, target]
+        if value.dim() == 4:
+            weight = weight[:, None, :, :]                                      # [batch, 1, source, target]
+        value = torch.matmul(value, weight)                                     # [batch, (latent,) v_dim, target]
+        if self.dim_last:
+            value = value.transpose(-2, -1)                                     # [batch, (latent,) target, v_dim]
+        return value
+
+
+class SetConv2dEncoder(SetConvBase):
+    def forward(self,
+        query: TensorType[B, T, QK],
+        key:   TensorType[B, S, QK],
+        value: TensorType[B, S, V],
+    ) -> TensorType[B, V + 2, T, T]:
+
+        density = torch.ones((*value.shape[:-1], 1), device=value.device)       # [batch, source, 1]
+        value = torch.cat((density, value), dim=-1)                             # [batch, source, v_dim + 1]
+        value = value.transpose(-2, -1)[..., None]                              # [batch, v_dim + 1, source, 1]
+
+        weight = self._get_weight(key, query)                                   # [batch, source, target]
+        weight = weight[:, None, :, :]                                          # [batch, 1, source, target]
+
+        value = (weight * value).transpose(-2, -1)                              # [batch, v_dim + 1, target, source]
+        value = torch.matmul(value, weight)                                     # [batch, v_dim + 1, target, target]
+        value = torch.cat((                                                     # [batch, v_dim + 1, target, target]
+            value[:, :1, ...],
+            value[:, 1:, ...] / (value[:, :1, ...] + 1e-8)
+        ), axis=1)
+
+        identity = torch.eye(query.shape[1])[None, None, ...]                   # [1, 1, target, target]
+        identity = identity.repeat(query.shape[0], 1, 1, 1)                     # [batch, 1, target, target]
+        value = torch.cat((identity, value), dim=1)                             # [batch, v_dim + 2, target, target]
+
+        return value
+
+
+class SetConv2dDecoder(SetConvBase):
+    def forward(self,
+        query: TensorType[B, T, QK],
+        key:   TensorType[B, S, QK],
+        value: TensorType[B, V, S, S],
+    ) -> TensorType[B, V, T, T]:
 
         weight = self._get_weight(query, key)                                   # [batch, target, source]
-        if value.dim() == 4:
-            weight = weight[:, None, :, :]                                      # [batch, 1, target, source]
-        value = torch.matmul(weight, value)                                     # [batch, target, v_dim]
-        return value                                                            # or [batch, latent, target, v_dim]
+        weight = weight[:, None, :, :]                                          # [batch, 1, target, source]
+
+        value = torch.matmul(weight, value)                                     # [batch, v_dim, target, source]
+        value_t = value.transpose(-2, -1)                                       # [batch, v_dim, source, target]
+        value = torch.matmul(value, value_t)                                    # [batch, v_dim, target, target]
+        return value
