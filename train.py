@@ -145,14 +145,6 @@ def main():
             latent_cnn_xl=True,
             loss_type=args.loss_type,
         )
-    elif args.model == "flownp":
-        model = models.FlowNP()
-    elif args.model == "flowmixnp":
-        model = models.FlowMixtureNP()
-    elif args.model == "flowleakynp":
-        model = models.FlowLeakyNP()
-    elif args.model == "flowaffinenp":
-        model = models.FlowAffineNP()
     else:
         raise ValueError(f"Unsupported model: '{args.model}'")
 
