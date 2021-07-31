@@ -7,7 +7,6 @@ from .base import ConditionalNPF
 
 from ..modules import (
     MLP,
-    LogLikelihood,
 )
 
 
@@ -15,7 +14,9 @@ __all__ = ["CNPBase", "CNP"]
 
 
 class CNPBase(ConditionalNPF):
-    """Conditional Neural Process Base"""
+    """
+    Base class of Conditional Neural Process
+    """
 
     def __init__(self,
         encoder,
@@ -32,8 +33,6 @@ class CNPBase(ConditionalNPF):
 
         self.encoder = encoder
         self.decoder = decoder
-
-        self.log_likelihood_fn = LogLikelihood()
 
     def _aggregate(self,
         r_i_context: TensorType[B, C, R],
@@ -68,19 +67,11 @@ class CNPBase(ConditionalNPF):
 
         return mu, sigma
 
-    def log_likelihood(self,
-        x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
-        x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
-    ) -> TensorType[float]:
-
-        mu, sigma = self(x_context, y_context, x_target)
-        log_likelihood = self.log_likelihood_fn(y_target, mu, sigma)
-        log_likelihood = torch.mean(log_likelihood)
-        return log_likelihood
-
 
 class CNP(CNPBase):
-    """Conditional Neural Process"""
+    """
+    Conditional Neural Process
+    """
 
     def __init__(self,
         x_dim: int,

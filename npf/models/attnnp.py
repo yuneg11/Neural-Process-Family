@@ -17,7 +17,9 @@ __all__ = ["AttnNPBase", "AttnNP"]
 
 
 class AttnNPBase(NPBase):
-    """Attentive Neural Process Base"""
+    """
+    Base class of Attentive Neural Process
+    """
 
     def __init__(self,
         latent_encoder,
@@ -58,7 +60,9 @@ class AttnNPBase(NPBase):
 
 
 class AttnNP(AttnNPBase):
-    """Attentive Neural Process"""
+    """
+    Attentive Neural Process
+    """
 
     def __init__(self,
         x_dim: int, y_dim: int,

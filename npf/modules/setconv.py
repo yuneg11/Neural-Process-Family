@@ -88,7 +88,7 @@ class SetConvBase(nn.Module):
         """
 
     @staticmethod
-    def get_distance(
+    def _get_distance(
         a: TensorType[B, N, X],
         b: TensorType[B, M, X],
     ) -> TensorType[B, N, M]:
@@ -101,12 +101,12 @@ class SetConvBase(nn.Module):
             distance = a_norm + b_norm - 2 * torch.matmul(a, b.transpose(-1, -2))
         return distance
 
-    def get_weight(self,
+    def _get_weight(self,
         a: TensorType[B, N, X],
         b: TensorType[B, M, X],
     ) -> TensorType[B, N, M]:
 
-        distance = self.get_distance(a, b)
+        distance = self._get_distance(a, b)
         weight = torch.exp(-0.5 * distance / torch.exp(2 * self.log_scale))
         return weight
 
@@ -118,10 +118,10 @@ class SetConv1dEncoder(SetConvBase):
         value: TensorType[B, S, V],
     ) -> TensorType[B, T, V + 1]:
 
-        density = torch.ones((*value.shape[:-1], 1), device=value.device)       # [batch, target, 1]
-        value = torch.cat((density, value), dim=-1)                             # [batch, target, v_dim + 1]
+        density = torch.ones((*value.shape[:-1], 1), device=value.device)       # [batch, source, 1]
+        value = torch.cat((density, value), dim=-1)                             # [batch, source, v_dim + 1]
 
-        weight = self.get_weight(query, key)                                    # [batch, target, source]
+        weight = self._get_weight(query, key)                                   # [batch, target, source]
         value = torch.matmul(weight, value)                                     # [batch, target, v_dim + 1]
         value = torch.cat((                                                     # [batch, target, v_dim + 1]
             value[..., :1],
@@ -138,7 +138,7 @@ class SetConv1dDecoder(SetConvBase):
         value: Union[TensorType[B, S, V], TensorType[B, L, S, V]],
     ) -> Union[TensorType[B, T, V], TensorType[B, L, T, V]]:
 
-        weight = self.get_weight(query, key)                                    # [batch, target, source]
+        weight = self._get_weight(query, key)                                   # [batch, target, source]
         if value.dim() == 4:
             weight = weight[:, None, :, :]                                      # [batch, 1, target, source]
         value = torch.matmul(weight, value)                                     # [batch, target, v_dim]

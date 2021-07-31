@@ -14,8 +14,6 @@ from ..modules import (
     Discretization1d,
     SetConv1dEncoder,
     SetConv1dDecoder,
-    LogLikelihood,
-    KLDivergence,
 )
 
 
@@ -23,7 +21,9 @@ __all__ = ["ConvNPBase", "ConvNP"]
 
 
 class ConvNPBase(LatentNPF):
-    """Convolutional Neural Process Base"""
+    """
+    Base class of Convolutional Neural Process
+    """
 
     def __init__(self,
         discretizer,
@@ -61,9 +61,6 @@ class ConvNPBase(LatentNPF):
         self.determ_cnn = determ_cnn
         self.latent_cnn = latent_cnn
         self.decoder = decoder
-
-        self.log_likelihood_fn = LogLikelihood()
-        self.kl_divergence_fn = KLDivergence()
 
     def _latent_dist(self,
         z: TensorType[B, Z * 2, D],
@@ -124,22 +121,6 @@ class ConvNPBase(LatentNPF):
 
         return mu, sigma
 
-    def log_likelihood(self,
-        x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
-        x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
-        num_latents: int = 1,
-    ) -> TensorType[float]:
-
-        mu, sigma = self(x_context, y_context, x_target, num_latents)           # [batch, latent, target, y_dim] * 2
-        log_likelihood = self.log_likelihood_fn(y_target, mu, sigma)            # [batch, latent, target]
-
-        log_likelihood = torch.mean(log_likelihood, dim=-1)                     # [batch, latent]
-        log_likelihood = torch.logsumexp(log_likelihood, dim=-1) \
-                       - math.log(num_latents)                                  # [batch]
-        log_likelihood = torch.mean(log_likelihood)                             # [1]
-
-        return log_likelihood
-
     def vi_loss(self,
         x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
         x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
@@ -177,10 +158,10 @@ class ConvNPBase(LatentNPF):
         sigma = self.decoder(x_target, x_grid, sigma)                           # [batch, target, y_dim]
 
         # Loss
-        log_likelihood = self.log_likelihood_fn(y_target, mu, sigma)            # [batch, latent, target]
+        log_likelihood = self._log_likelihood(y_target, mu, sigma)              # [batch, latent, target]
         log_likelihood = torch.mean(log_likelihood)                             # [1]
 
-        kl_divergence = self.kl_divergence_fn(z_data, z_context)                # [batch, z_dim, discrete]
+        kl_divergence = self._kl_divergence(z_data, z_context)                  # [batch, z_dim, discrete]
         kl_divergence = torch.mean(kl_divergence)                               # [1]
 
         loss = -log_likelihood + kl_divergence                                  # [1]
@@ -189,6 +170,10 @@ class ConvNPBase(LatentNPF):
 
 
 class ConvNP(ConvNPBase):
+    """
+    Convolutional Neural Process
+    """
+
     def __init__(self,
         y_dim: int,
         z_dim: int,

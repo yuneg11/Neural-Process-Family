@@ -10,8 +10,6 @@ from .base import LatentNPF
 
 from ..modules import (
     MLP,
-    LogLikelihood,
-    KLDivergence,
 )
 
 
@@ -19,7 +17,9 @@ __all__ = ["NPBase", "NP"]
 
 
 class NPBase(LatentNPF):
-    """Neural Process Base"""
+    """
+    Base class of Neural Process
+    """
 
     def __init__(self,
         latent_encoder,
@@ -59,9 +59,6 @@ class NPBase(LatentNPF):
             self._latent_encode_only = lambda d: self.latent_encoder(d)
 
         self.decoder = decoder
-
-        self.log_likelihood_fn = LogLikelihood()
-        self.kl_divergence_fn = KLDivergence()
 
     # Encodes
     def _encode(self,
@@ -187,23 +184,7 @@ class NPBase(LatentNPF):
 
         return mu, sigma
 
-    # Likelihood and Loss
-
-    def log_likelihood(self,
-        x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
-        x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
-        num_latents: int = 1,
-    ) -> TensorType[float]:
-
-        mu, sigma = self(x_context, y_context, x_target, num_latents)           # [batch, latent, target, y_dim] * 2
-        log_likelihood = self.log_likelihood_fn(y_target, mu, sigma)            # [batch, latent, target]
-
-        log_likelihood = torch.mean(log_likelihood, dim=-1)                     # [batch, latent]
-        log_likelihood = torch.logsumexp(log_likelihood, dim=-1) \
-                       - math.log(num_latents)                                  # [batch]
-        log_likelihood = torch.mean(log_likelihood)                             # [1]
-
-        return log_likelihood
+    # Loss
 
     def vi_loss(self,
         x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
@@ -236,10 +217,10 @@ class NPBase(LatentNPF):
         mu, sigma = self._decode(query)                                         # [batch, latent, target, y_dim] * 2
 
         # Loss
-        log_likelihood = self.log_likelihood_fn(y_target, mu, sigma)            # [batch, latent, target]
+        log_likelihood = self._log_likelihood(y_target, mu, sigma)              # [batch, latent, target]
         log_likelihood = torch.mean(log_likelihood)                             # [1]
 
-        kl_divergence = self.kl_divergence_fn(z_data, z_context)                # [batch, 1, z_dim]
+        kl_divergence = self._kl_divergence(z_data, z_context)                  # [batch, 1, z_dim]
         kl_divergence = torch.mean(kl_divergence)                               # [1]
 
         loss = -log_likelihood + kl_divergence                                  # [1]
@@ -248,7 +229,9 @@ class NPBase(LatentNPF):
 
 
 class NP(NPBase):
-    """Neural Process"""
+    """
+    Neural Process
+    """
 
     def __init__(self,
         x_dim: int, y_dim: int,

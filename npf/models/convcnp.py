@@ -13,7 +13,6 @@ from ..modules import (
     Discretization1d,
     SetConv1dEncoder,
     SetConv1dDecoder,
-    LogLikelihood,
 )
 
 
@@ -21,7 +20,9 @@ __all__ = ["ConvCNPBase", "ConvCNP"]
 
 
 class ConvCNPBase(ConditionalNPF):
-    """Convolutional Conditional Neural Process Base"""
+    """
+    Base class of Convolutional Conditional Neural Process
+    """
 
     def __init__(self,
         discretizer,
@@ -52,8 +53,6 @@ class ConvCNPBase(ConditionalNPF):
         self.cnn = cnn
         self.decoder = decoder
 
-        self.log_likelihood_fn = LogLikelihood()
-
     def forward(self,
         x_context: TensorType[B, C, X],
         y_context: TensorType[B, C, Y],
@@ -81,18 +80,12 @@ class ConvCNPBase(ConditionalNPF):
 
         return mu, sigma
 
-    def log_likelihood(self,
-        x_context: TensorType[B, C, X], y_context: TensorType[B, C, Y],
-        x_target:  TensorType[B, T, X], y_target:  TensorType[B, T, Y],
-    ) -> TensorType[float]:
-
-        mu, sigma = self(x_context, y_context, x_target)
-        log_likelihood = self.log_likelihood_fn(y_target, mu, sigma)
-        log_likelihood = torch.mean(log_likelihood)
-        return log_likelihood
-
 
 class ConvCNP(ConvCNPBase):
+    """
+    Convolutional Conditional Neural Process
+    """
+
     def __init__(self,
         y_dim: int,
         cnn_dims: Optional[List[int]] = None,
