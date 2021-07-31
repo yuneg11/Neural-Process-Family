@@ -73,6 +73,18 @@ def get_model(model_name, device):
             determ_cnn_xl=True,
             latent_cnn_xl=True,
         )
+    elif model_name == "gnp":
+        model = models.GNP(
+            y_dim=1,
+            mean_cnn_xl=False,
+            kernel_cnn_xl=False,
+        )
+    elif model_name == "gnpxl":
+        model = models.GNP(
+            y_dim=1,
+            mean_cnn_xl=True,
+            kernel_cnn_xl=True,
+        )
 
     model.to(device)
 
@@ -160,6 +172,9 @@ def main(
         AttnNP=(lambda: get_model("attnnp", device), True),
         ConvNP=(lambda: get_model("convnp", device), True),
         ConvNPXL=(lambda: get_model("convnpxl", device), True),
+        # Multivariate models
+        GNP=(lambda: get_model("gnp", device), False),
+        GNPXL=(lambda: get_model("gnpxl", device), False),
     )
 
     max_m_len = max(map(len, model_lambdas.keys()))

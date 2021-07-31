@@ -34,16 +34,16 @@ class ConvCNPBase(ConditionalNPF):
         Args:
             discretizer : [[batch, context, x_dim]
                            [batch, target, x_dim]]
-                       -> [1, descrete, 1]
-            encoder     : [[batch, descrete, x_dim]
+                       -> [1, discrete, 1]
+            encoder     : [[batch, discrete, x_dim]
                            [batch, context, x_dim]
                            [batch, context, y_dim]]
-                       -> [batch, discrete, y_dim + 1]
+                       -> [batch, y_dim + 1, discrete]
             cnn         : [batch, y_dim + 1, discrete]
                        -> [batch, y_dim * 2, discrete]
             decoder     : [[batch, target, x_dim]
                            [batch, discrete, x_dim]
-                           [batch, discrete, y_dim]]
+                           [batch, y_dim, discrete]]
                        -> [batch, target, y_dim]
         """
         super().__init__()

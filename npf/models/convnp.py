@@ -37,18 +37,18 @@ class ConvNPBase(LatentNPF):
         Args:
             discretizer : [[batch, context, x_dim]
                            [batch, target, x_dim]]
-                       -> [1, descrete, 1]
-            encoder     : [[batch, descrete, x_dim]
+                       -> [1, discrete, 1]
+            encoder     : [[batch, discrete, x_dim]
                            [batch, context, x_dim]
                            [batch, context, y_dim]]
-                       -> [batch, discrete, y_dim + 1]
+                       -> [batch, y_dim + 1, discrete]
             determ_cnn  : [batch, y_dim + 1, discrete]
                        -> [batch, z_dim * 2, discrete]
             latent_cnn  : [batch, latent, z_dim, discrete]
                        -> [batch, latent, y_dim * 2, discrete]
             decoder     : [[batch, latent, target, x_dim]
                            [batch, latent, discrete, x_dim]
-                           [batch, latent, discrete, y_dim]]
+                           [batch, latent, y_dim, discrete]]
                        -> [batch, latent, target, y_dim]
             loss_type   : str ("vi" or "ml")
         """

@@ -179,8 +179,8 @@ class SetConv2dEncoder(SetConvBase):
             value[:, 1:, ...] / (value[:, :1, ...] + 1e-8)
         ), axis=1)
 
-        identity = torch.eye(query.shape[1])[None, None, ...]                   # [1, 1, target, target]
-        identity = identity.repeat(query.shape[0], 1, 1, 1)                     # [batch, 1, target, target]
+        identity = torch.eye(query.shape[1], device=value.device)[None, None, ...]# [1, 1, target, target]
+        identity = identity.repeat(value.shape[0], 1, 1, 1)                     # [batch, 1, target, target]
         value = torch.cat((identity, value), dim=1)                             # [batch, v_dim + 2, target, target]
 
         return value

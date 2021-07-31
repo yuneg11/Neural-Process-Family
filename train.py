@@ -145,6 +145,18 @@ def main():
             latent_cnn_xl=True,
             loss_type=args.loss_type,
         )
+    elif args.model == "gnp":
+        model = models.GNP(
+            y_dim=1,
+            mean_cnn_xl=False,
+            kernel_cnn_xl=False,
+        )
+    elif args.model == "gnpxl":
+        model = models.GNP(
+            y_dim=1,
+            mean_cnn_xl=True,
+            kernel_cnn_xl=True,
+        )
     else:
         raise ValueError(f"Unsupported model: '{args.model}'")
 
