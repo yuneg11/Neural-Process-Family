@@ -82,46 +82,57 @@ def get_model(model_name, device):
 def check_conditional_model(model, data, end):
     model.eval()
 
-    pass_test, _ = test("Forward: ", lambda: model(*data[:3]))
-    pass_test, _ = test(" / Likelihood: ", lambda: model.log_likelihood(*data))
+    pass_forward, _ = test("Forward: ", lambda: model(*data[:3]))
+    pass_likelihood, _ = test(" / Likelihood: ", lambda: model.log_likelihood(*data))
     printw(end=end)
 
     model.train()
 
-    pass_test, loss = test("Loss:    ", lambda: model.loss(*data))
-    if pass_test:
-        pass_test, _ = test(" / Backward:   ", lambda: loss.backward())
+    pass_loss, loss = test("Loss:    ", lambda: model.loss(*data))
+    if pass_loss:
+        pass_loss_back, _ = test(" / Backward:   ", lambda: loss.backward())
     else:
+        pass_loss_back = False
         printw(" " * (MAX_T_LEN - 13))
+
+    pass_test = pass_forward and pass_likelihood \
+                and pass_loss and pass_loss_back
 
     return pass_test
 
 def check_latent_model(model, data, num_latents, end):
     model.eval()
 
-    pass_test, _ = test("Forward: ", lambda: model(*data[:3], num_latents))
-    pass_test, _ = test(" / Likelihood: ", lambda: model.log_likelihood(*data, num_latents))
+    pass_forward, _ = test("Forward: ", lambda: model(*data[:3], num_latents))
+    pass_likelihood, _ = test(" / Likelihood: ", lambda: model.log_likelihood(*data, num_latents))
     printw(end=end)
 
     model.train()
 
-    pass_test, vi_loss = test("VI Loss: ", lambda: model.vi_loss(*data, num_latents))
-    if pass_test:
-        pass_test, _ = test(" / Backward:   ", lambda: vi_loss.backward())
+    pass_viloss, vi_loss = test("VI Loss: ", lambda: model.vi_loss(*data, num_latents))
+    if pass_viloss:
+        pass_viloss_back, _ = test(" / Backward:   ", lambda: vi_loss.backward())
     else:
+        pass_viloss_back = False
         printw(" " * (MAX_T_LEN - 13))
     printw(end=end)
 
-    pass_test, ml_loss = test("ML Loss: ", lambda: model.ml_loss(*data, num_latents))
-    if pass_test:
-        pass_test, _ = test(" / Backward:   ", lambda: ml_loss.backward())
+    pass_mlloss, ml_loss = test("ML Loss: ", lambda: model.ml_loss(*data, num_latents))
+    if pass_mlloss:
+        pass_mlloss_back, _ = test(" / Backward:   ", lambda: ml_loss.backward())
     else:
+        pass_mlloss_back = False
         printw(" " * (MAX_T_LEN - 13))
+
+    pass_test = pass_forward and pass_likelihood \
+                and pass_viloss and pass_viloss_back \
+                and pass_mlloss and pass_mlloss_back
 
     return pass_test
 
 
 def main(
+    models,
     device,
 ):
     x_dim = 1
@@ -138,20 +149,20 @@ def main(
     y_target  = torch.randn(num_batches, num_targets, y_dim, device=device)
     data = (x_context, y_context, x_target, y_target)
 
-    models = dict(
+    model_lambdas = dict(
         # Conditional models
-        CNP=(get_model("cnp", device), False),
-        AttnCNP=(get_model("attncnp", device), False),
-        ConvCNP=(get_model("convcnp", device), False),
-        ConvCNPXL=(get_model("convcnpxl", device), False),
+        CNP=(lambda: get_model("cnp", device), False),
+        AttnCNP=(lambda: get_model("attncnp", device), False),
+        ConvCNP=(lambda: get_model("convcnp", device), False),
+        ConvCNPXL=(lambda: get_model("convcnpxl", device), False),
         # Latent models
-        NP=(get_model("np", device), True),
-        AttnNP=(get_model("attnnp", device), True),
-        ConvNP=(get_model("convnp", device), True),
-        ConvNPXL=(get_model("convnpxl", device), True),
+        NP=(lambda: get_model("np", device), True),
+        AttnNP=(lambda: get_model("attnnp", device), True),
+        ConvNP=(lambda: get_model("convnp", device), True),
+        ConvNPXL=(lambda: get_model("convnpxl", device), True),
     )
 
-    max_m_len = max(map(len, models.keys()))
+    max_m_len = max(map(len, model_lambdas.keys()))
 
     num_pass = 0
     num_fail = 0
@@ -164,7 +175,12 @@ def main(
     print(top_border)
     printw(f"│ {'Model':{max_m_len}s} │ {'Test':{MAX_T_LEN}s}")
 
-    for model_name, (model, latent_model) in models.items():
+    for model_name, (model_lambda, latent_model) in model_lambdas.items():
+        if len(models) > 0 and model_name.lower() not in models:
+            continue
+
+        model = model_lambda()
+
         print(" │\n" + middle_border1)
         printw("│", model_name.ljust(max_m_len), "│ ")
         end = " │\n│ " + " " * max_m_len + " │ "
@@ -185,6 +201,7 @@ def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
+    parser.add_argument("models", type=str, nargs="*")
     parser.add_argument("-d", "--device", type=str, default="cuda:0")
     args = parser.parse_args()
 
@@ -197,5 +214,6 @@ if __name__ == "__main__":
         args.device = torch.device("cuda:0")
 
     main(
+        models=args.models,
         device=torch.device(args.device),
     )
