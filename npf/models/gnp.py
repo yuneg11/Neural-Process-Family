@@ -35,6 +35,7 @@ class GNPBase(MultivariateNPF):
         init_log_sigma: float = 0.1,
         likelihood_type: str = "multivariate",
         loss_type: str = "multivariate",
+        noise_eps: float = 1e-5,
     ):
         """
         Args:
@@ -62,6 +63,7 @@ class GNPBase(MultivariateNPF):
                               [batch, y_dim, discrete]]
                           -> [batch, y_dim, target]
             init_log_sigma : float
+            noise_eps      : float
         """
         super().__init__(
             likelihood_type=likelihood_type,
@@ -81,6 +83,7 @@ class GNPBase(MultivariateNPF):
         self.log_sigma = nn.Parameter(
             torch.tensor(init_log_sigma, dtype=torch.float),
         )
+        self.noise_eps = noise_eps
 
     def forward(self,
         x_context: TensorType[B, C, X],
@@ -107,14 +110,15 @@ class GNPBase(MultivariateNPF):
 
         identity = torch.eye(cov.shape[-1], device=cov.device)[None, None, :, :]# [1, 1, target, target]
         identity = identity.repeat(*cov.shape[:2], 1, 1)                        # [batch, y_dim, target, target]
-        noise = identity * (torch.exp(self.log_sigma) + 1e-8)                   # [batch, y_dim, target, target]
+        noise = identity * (torch.exp(self.log_sigma) + self.noise_eps)         # [batch, y_dim, target, target]
         #? Add a small epsilon to avoid numerical issues (Not as original impl.)
 
         cov = cov + noise                                                       # [batch, y_dim, target, target]
 
         if as_univariate:
-            mu = mu.transpose(1, 2)                                             # [batch, target, y_dim]
-            sigma = torch.sqrt(torch.diagonal(cov, dim1=-2, dim2=-1))           # [batch, target, y_dim]
+            mu    = mu.transpose(1, 2)                                          # [batch, target, y_dim]
+            sigma = torch.sqrt(torch.diagonal(cov, dim1=-2, dim2=-1))           # [batch, y_dim, target]
+            sigma = sigma.transpose(1, 2)                                       # [batch, target, y_dim]
             return mu, sigma
         else:
             return mu, cov
@@ -132,6 +136,7 @@ class GNP(GNPBase):
         init_log_sigma: float = 0.1,
         likelihood_type: str = "multivariate",
         loss_type: str = "multivariate",
+        noise_eps: float = 1e-5,
     ):
         if mean_cnn_xl:
             MeanConvNet = UNet
@@ -206,4 +211,5 @@ class GNP(GNPBase):
             init_log_sigma=init_log_sigma,
             likelihood_type=likelihood_type,
             loss_type=loss_type,
+            noise_eps=noise_eps,
         )
