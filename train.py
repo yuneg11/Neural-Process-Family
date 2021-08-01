@@ -9,8 +9,10 @@ from torch.utils.tensorboard import SummaryWriter
 
 from tqdm import tqdm, trange
 
-from npf import models
-from utils.data import *
+from utils import (
+    get_data,
+    get_model,
+)
 
 
 warnings.filterwarnings("ignore")
@@ -68,175 +70,118 @@ def test(model, dataloader, device=None):
     return test_log_likelihood
 
 
-def main():
-    parser = argparse.ArgumentParser("NPF Trainer")
-    # parser.add_argument("model", choices=["cnp", "np", "flownp", "flowmixnp", "flowleakynp"])
-    parser.add_argument("model")
-    parser.add_argument("data_dir")
-    parser.add_argument("-dn", "--dataname")  # TODO: Temporary data name
-    parser.add_argument("-e", "--epochs", type=int, default=1000)
-    parser.add_argument("-lt", "--loss-type", choices=["vi", "ml"])
-    parser.add_argument("-ti", "--test-interval", type=int, default=10)
-    parser.add_argument("-lr", "--learning-rate", type=float, default=3e-4)
-    parser.add_argument("-wd", "--weight-decay", type=float, default=1e-5)
-    parser.add_argument("-d", "--device", type=str, default="cuda:0")
-    parser.add_argument("-l", "--log-dir", type=str, default="./logs")
-    parser.add_argument("-q", "--quite", action="store_true")
-    args = parser.parse_args()
-
+def main(
+    model_name, data, data_root, comment,
+    epochs, test_interval, learning_rate, weight_decay, device,
+    log_root, no_logging, quite, **kwargs,
+):
     # Temporary GPU allocation
-    if args.device.startswith("cuda"):
-        k = args.device.split(":")
+    if device.startswith("cuda"):
+        k = device.split(":")
         gpu_idx = (int(k[1]) if len(k) > 1 else 0)
 
         os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_idx)
-        args.device = torch.device("cuda:0")
+        device = torch.device("cuda:0")
+    else:
+        device = torch.device(device)
 
     # Model
-    if args.model == "cnp":
-        model = models.CNP(
-            x_dim=1, y_dim=1, r_dim=128,
-            encoder_dims=[128, 128],
-            decoder_dims=[128, 128],
-        )
-    elif args.model == "np":
-        model = models.NP(
-            x_dim=1, y_dim=1, r_dim=128, z_dim=128,
-            determ_encoder_dims=[128, 128],
-            latent_encoder_dims=[128, 128],
-            decoder_dims=[128, 128],
-            loss_type=args.loss_type,
-        )
-    elif args.model == "attncnp":
-        model = models.AttnCNP(
-            x_dim=1, y_dim=1, r_dim=128,
-            encoder_dims=[128, 128],
-            decoder_dims=[128, 128],
-        )
-    elif args.model == "attnnp":
-        model = models.AttnNP(
-            x_dim=1, y_dim=1, r_dim=128, z_dim=128,
-            determ_encoder_dims=[128, 128],
-            latent_encoder_dims=[128, 128],
-            decoder_dims=[128, 128],
-            loss_type=args.loss_type,
-        )
-    elif args.model == "convcnp":
-        model = models.ConvCNP(
-            y_dim=1,
-            cnn_xl=False,
-        )
-    elif args.model == "convcnpxl":
-        model = models.ConvCNP(
-            y_dim=1,
-            cnn_xl=True,
-        )
-    elif args.model == "convnp":
-        model = models.ConvNP(
-            y_dim=1, z_dim=8,
-            determ_cnn_xl=False,
-            latent_cnn_xl=False,
-            loss_type=args.loss_type,
-        )
-    elif args.model == "convnpxl":
-        model = models.ConvNP(
-            y_dim=1, z_dim=8,
-            determ_cnn_xl=True,
-            latent_cnn_xl=True,
-            loss_type=args.loss_type,
-        )
-    elif args.model == "gnp":
-        model = models.GNP(
-            y_dim=1,
-            mean_cnn_xl=False,
-            kernel_cnn_xl=False,
-        )
-    elif args.model == "gnpxl":
-        model = models.GNP(
-            y_dim=1,
-            mean_cnn_xl=True,
-            kernel_cnn_xl=True,
-        )
-    else:
-        raise ValueError(f"Unsupported model: '{args.model}'")
+    model = get_model(model_name, **kwargs)
+    model.to(device)
 
-    model.to(args.device)
-
-    if not args.quite:
+    if not quite:
         print(f"Model params: {model.num_params}")
 
     # Data
-    train_loader = CachedDataLoader(path.join(args.data_dir, "train.pt"), device=args.device, reuse=False)
-    val_loader   = CachedDataLoader(path.join(args.data_dir,   "val.pt"), device=args.device, reuse=False)
-    test_loader  = CachedDataLoader(path.join(args.data_dir,  "test.pt"), device=args.device, reuse=True)
+    train_loader, val_loader, test_loader = get_data(data, data_root, device, **kwargs)
 
     # Optimizer
-    optimizer = optim.Adam(
-    # optimizer = optim.SGD(
+    optimizer_class = optim.Adam
+    optimizer = optimizer_class(
         model.parameters(),
-        lr=args.learning_rate,
-        weight_decay=args.weight_decay,
+        lr=learning_rate,
+        weight_decay=weight_decay,
     )
 
     # scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=300, gamma=0.5)
 
-    if args.dataname:
-        if not args.quite:
-            print(f"Logging to TensorBoard: {args.log_dir}/{args.model}/{args.dataname}")
-        log_root = path.join(args.log_dir, args.model, args.dataname)
-        tb_writer = SummaryWriter(log_root)
-        logging = True
-    else:
-        logging = False
+    exp_name = f"{data}/{model_name}" + (f"/{comment}" if comment else "")
 
-    if logging:
+    if not no_logging:
+        if not quite:
+            print(f"Logging to TensorBoard: {log_root}/{exp_name}")
+        if comment:
+            log_root = path.join(log_root, data, model_name, comment)
+        else:
+            log_root = path.join(log_root, data, model_name)
+        tb_writer = SummaryWriter(log_root)
+
+    if not no_logging:
         tb_writer.add_graph(model, input_to_model=[
-            torch.ones(16, 10, 1, device=args.device),
-            torch.ones(16, 10, 1, device=args.device),
-            torch.ones(16, 15, 1, device=args.device),
+            torch.ones(16, 10, 1, device=device),
+            torch.ones(16, 10, 1, device=device),
+            torch.ones(16, 15, 1, device=device),
         ])
 
     # Train
-    for epoch in trange(1, args.epochs + 1, desc=f"{args.model}/{args.dataname}", ncols=0):
-        if not args.quite:
-            tqdm.write(f"Epoch {epoch:3d}", end=" │ ", nolock=True)
+    for epoch in trange(1, epochs + 1, desc=exp_name, ncols=0):
+        if not quite:
+            tqdm.write(f"Epoch {epoch:3d}", end=" │ ")
 
-        train_loss = train(model, train_loader, optimizer, args.device)
-        if not args.quite:
-            tqdm.write(f"Train loss: {train_loss:.4f}", end="", nolock=True)
-        if logging:
+        train_loss = train(model, train_loader, optimizer, device)
+        if not quite:
+            tqdm.write(f"Train loss: {train_loss:.4f}", end="")
+        if not no_logging:
             tb_writer.add_scalar("Loss/train", train_loss, epoch)
 
-        val_ll = test(model, val_loader, args.device)
-        if not args.quite:
-            tqdm.write(f" │ Valid ll: {val_ll:.4f}", end="", nolock=True)
-        if logging:
+        val_ll = test(model, val_loader, device)
+        if not quite:
+            tqdm.write(f" │ Valid ll: {val_ll:.4f}", end="")
+        if not no_logging:
             tb_writer.add_scalar("Log-Likelihood/validation", val_ll, epoch)
 
-        if epoch % args.test_interval == 0 or epoch == args.epochs:
-            test_ll = test(model, test_loader, args.device)
-            if not args.quite:
-                tqdm.write(f" │ Test ll: {test_ll:.4f}", end="", nolock=True)
+        if epoch % test_interval == 0 or epoch == epochs:
+            test_ll = test(model, test_loader, device)
+            if not quite:
+                tqdm.write(f" │ Test ll: {test_ll:.4f}", end="")
 
-            if logging:
+            if not no_logging:
                 tb_writer.add_scalar("Log-Likelihood/test", test_ll, epoch)
-                with open(path.join(log_root, f"epoch{args.epochs}.txt"), "w") as f:
+                with open(path.join(log_root, f"epoch{epochs}.txt"), "w") as f:
                     f.write(f"Test log-likelihood: {test_ll:.4f}")
 
-        if not args.quite:
+        if not quite:
             tqdm.write("")
 
-        if logging:
+        if not no_logging:
             tb_writer.flush()
 
         # scheduler.step()
 
-    if logging:
+    if not no_logging:
         tb_writer.close()
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser("NPF Trainer")
+    # parser.add_argument("model", choices=["cnp", "np", "flownp", "flowmixnp", "flowleakynp"])
+    parser.add_argument("model_name")
+    parser.add_argument("data", type=str)
+    parser.add_argument("-dr", "--data-root", type=str, default="./data")
+    parser.add_argument("-c", "--comment", type=str)
+    parser.add_argument("-e", "--epochs", type=int, default=1000)
+    parser.add_argument("-llt", "--likelihood-type", choices=["univariate", "multivariate"])
+    parser.add_argument("-lst", "--loss-type", choices=["vi", "ml", "univariate", "multivariate"])
+    parser.add_argument("-ti", "--test-interval", type=int, default=10)
+    parser.add_argument("-lr", "--learning-rate", type=float, default=3e-4)
+    parser.add_argument("-wd", "--weight-decay", type=float, default=1e-5)
+    parser.add_argument("-d", "--device", type=str, default="cuda:0")
+    parser.add_argument("-ld", "--log-root", type=str, default="./logs")
+    parser.add_argument("-nl", "--no-logging", action="store_true")
+    parser.add_argument("-q", "--quite", action="store_true")
+    kwargs = parser.parse_args()
+
     try:
-        main()
+        main(**vars(kwargs))
     except KeyboardInterrupt:
         pass

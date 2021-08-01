@@ -1,31 +1,38 @@
 # NPF
 
-## CNP
+## Univariate NPF
 
-### Data
+### Conditional NPF
 
-```
-- x: [batch, sample, dim]
-- y: [batch, sample, dim]
-```
+#### CNP
 
-### Encoder
+Conditional Neural Process
 
-```
-- input:  [batch, context, x_dim + y_dim]
-- output: [batch, context, r_dim]
-```
+#### AttnCNP
 
-### Decoder
+Attentive Conditional Neural Process
 
-```
-- input: [batch, target, x_dim + r_dim]
-- output: [batch, target, y_dim * 2]
-```
+#### ConvCNP
 
-### LogLikelihood
+Convolutional Conditional Neural Process
 
-```
-- input: y_target, mu, var
-- output: ll
-```
+### Latent NPF
+
+#### NP
+
+Neural Process
+
+#### AttnNP
+
+Attentive Neural Process
+
+#### ConvNP
+
+Convolutional Neural Process
+
+
+## Multivariate NPF
+
+#### GNP
+
+Gaussian Neural Process
