@@ -93,7 +93,7 @@ def main(
         print(f"Model params: {model.num_params}")
 
     # Data
-    train_loader, val_loader, test_loader = get_data(data, data_root, device, **kwargs)
+    train_loader, val_loader, test_loader = get_data(data, data_root, device)
 
     # Optimizer
     optimizer_class = optim.Adam
@@ -116,34 +116,35 @@ def main(
             log_root = path.join(log_root, data, model_name)
         tb_writer = SummaryWriter(log_root)
 
-    if not no_logging:
-        tb_writer.add_graph(model, input_to_model=[
-            torch.ones(16, 10, 1, device=device),
-            torch.ones(16, 10, 1, device=device),
-            torch.ones(16, 15, 1, device=device),
-        ])
+    #! TODO: Temporary disabled
+    # if not no_logging:
+    #     tb_writer.add_graph(model, input_to_model=[
+    #         torch.ones(16, 10, 1, device=device),
+    #         torch.ones(16, 10, 1, device=device),
+    #         torch.ones(16, 15, 1, device=device),
+    #     ])
 
     # Train
     for epoch in trange(1, epochs + 1, desc=exp_name, ncols=0):
         if not quite:
-            tqdm.write(f"Epoch {epoch:3d}", end=" │ ")
+            tqdm.write(f"Epoch {epoch:3d}", end=" │ ", nolock=True)
 
         train_loss = train(model, train_loader, optimizer, device)
         if not quite:
-            tqdm.write(f"Train loss: {train_loss:.4f}", end="")
+            tqdm.write(f"Train loss: {train_loss:.4f}", end="", nolock=True)
         if not no_logging:
             tb_writer.add_scalar("Loss/train", train_loss, epoch)
 
         val_ll = test(model, val_loader, device)
         if not quite:
-            tqdm.write(f" │ Valid ll: {val_ll:.4f}", end="")
+            tqdm.write(f" │ Valid ll: {val_ll:.4f}", end="", nolock=True)
         if not no_logging:
             tb_writer.add_scalar("Log-Likelihood/validation", val_ll, epoch)
 
         if epoch % test_interval == 0 or epoch == epochs:
             test_ll = test(model, test_loader, device)
             if not quite:
-                tqdm.write(f" │ Test ll: {test_ll:.4f}", end="")
+                tqdm.write(f" │ Test ll: {test_ll:.4f}", end="", nolock=True)
 
             if not no_logging:
                 tb_writer.add_scalar("Log-Likelihood/test", test_ll, epoch)

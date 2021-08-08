@@ -66,8 +66,8 @@ class GNPBase(MultivariateNPF):
             noise_eps      : float
         """
         super().__init__(
-            likelihood_type=likelihood_type,
-            loss_type=loss_type,
+            likelihood_type=("multivariate" if likelihood_type is None else likelihood_type),
+            loss_type=("multivariate" if loss_type is None else loss_type),
         )
 
         self.discretizer = discretizer

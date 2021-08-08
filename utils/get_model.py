@@ -7,6 +7,8 @@ __all__ = [
 
 
 def get_model(model_name, **model_kwargs):
+    model_name = model_name.lower()
+
     if model_name == "cnp":
         model = models.CNP(
             x_dim=1, y_dim=1, r_dim=128,
@@ -76,6 +78,11 @@ def get_model(model_name, **model_kwargs):
             loss_type=model_kwargs["loss_type"],
         )
     else:
+        #! TODO: Temporary experimental model loaders
+        if "flow" in model_name:
+            from npf.models.flownp import get_model as get_flownp_model
+            return get_flownp_model(model_name, **model_kwargs)
+
         raise ValueError(f"Unsupported model: '{model_name}'")
 
     return model

@@ -18,13 +18,6 @@ __all__ = [
 ]
 
 
-def to_multiple(x, multiple):
-    if x % multiple == 0:
-        return x
-    else:
-        return x + multiple - x % multiple
-
-
 class Discretization1d(nn.Module):
     def __init__(self,
         points_per_unit: int,
@@ -92,6 +85,9 @@ class SetConvBase(nn.Module):
         a: TensorType[B, N, X],
         b: TensorType[B, M, X],
     ) -> TensorType[B, N, M]:
+        
+        #! TODO: Change to this
+        #! torch.sum((x[..., None, :, :] - x[..., :, None, :]).pow(2), dim=-1)
 
         if a.shape[-1] == 1 and b.shape[-1] == 1:
             distance = (a - b.transpose(1, 2)) ** 2
@@ -124,6 +120,7 @@ class SetConv1dEncoder(SetConvBase):
 
         weight = self._get_weight(key, query)                                   # [batch, source, target]
         value = torch.matmul(value, weight)                                     # [batch, v_dim + 1, target]
+        # TODO: Change to torch.tensor_split(inputs, (1,), dim=1)
         value = torch.cat((                                                     # [batch, v_dim + 1, target]
             value[:, :1, ...],
             value[:, 1:, ...] / (value[:, :1, ...] + 1e-8)
@@ -174,6 +171,7 @@ class SetConv2dEncoder(SetConvBase):
 
         value = (weight * value).transpose(-2, -1)                              # [batch, v_dim + 1, target, source]
         value = torch.matmul(value, weight)                                     # [batch, v_dim + 1, target, target]
+        # TODO: Change to torch.tensor_split(inputs, (1,), dim=1)
         value = torch.cat((                                                     # [batch, v_dim + 1, target, target]
             value[:, :1, ...],
             value[:, 1:, ...] / (value[:, :1, ...] + 1e-8)

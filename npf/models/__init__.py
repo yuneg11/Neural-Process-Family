@@ -5,3 +5,5 @@ from .attnnp import *
 from .convcnp import *
 from .convnp import *
 from .gnp import *
+
+from .flownp import *
