@@ -93,7 +93,7 @@ def main(
         print(f"Model params: {model.num_params}")
 
     # Data
-    train_loader, val_loader, test_loader = get_data(data, data_root, device)
+    train_loader, val_loader, test_loader = get_data(data, data_root)
 
     # Optimizer
     optimizer_class = optim.Adam
@@ -165,8 +165,7 @@ def main(
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser("NPF Trainer")
-    # parser.add_argument("model", choices=["cnp", "np", "flownp", "flowmixnp", "flowleakynp"])
-    parser.add_argument("model_name")
+    parser.add_argument("model_name", type=str)
     parser.add_argument("data", type=str)
     parser.add_argument("-dr", "--data-root", type=str, default="./data")
     parser.add_argument("-c", "--comment", type=str)
