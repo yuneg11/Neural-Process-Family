@@ -1,2 +1,3 @@
-from .get_data import *
-from .get_model import *
+from .data import *
+from .model import *
+from .plot import *

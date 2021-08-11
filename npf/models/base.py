@@ -277,8 +277,8 @@ class MultivariateNPF(NPF):
     ):
         super().__init__()
 
-        self.likelihood_type = (likelihood_type if likelihood_type else "multivariate")
-        self.loss_type = (loss_type if loss_type else "multivariate")
+        self.likelihood_type = likelihood_type
+        self.loss_type = loss_type
 
         if likelihood_type == "multivariate":
             self.log_likelihood = self.multivariate_log_likelihood

@@ -111,7 +111,7 @@ class GNPBase(MultivariateNPF):
         identity = torch.eye(cov.shape[-1], device=cov.device)[None, None, :, :]# [1, 1, target, target]
         identity = identity.repeat(*cov.shape[:2], 1, 1)                        # [batch, y_dim, target, target]
         noise = identity * (torch.exp(self.log_sigma) + self.noise_eps)         # [batch, y_dim, target, target]
-        #? Add a small epsilon to avoid numerical issues (Not as original impl.)
+        # NOTE: Add a small epsilon to avoid numerical issues (Not as original impl.)
 
         cov = cov + noise                                                       # [batch, y_dim, target, target]
 

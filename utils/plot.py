@@ -1,85 +1,65 @@
-from matplotlib import pyplot as plt
+import re
+
 import torch
 
-
-def plot_function(context_x, context_y, target_x, target_y, mu, sigma, layout=(2, 5), figsize=None, filename=None):
-    nrows, ncols = layout
-
-    if figsize is None:
-        figsize = (3 * ncols, 3 * nrows)
-
-    fig, ax = plt.subplots(nrows=nrows, ncols=ncols, squeeze=False, figsize=figsize)
-    idxs = torch.randint(low=0, high=context_x.shape[0], size=(nrows, ncols))
-
-    for row in range(nrows):
-        for col in range(ncols):
-            idx = idxs[row][col]
-
-            context_x_sample = context_x[idx].cpu().detach()
-            context_y_sample = context_y[idx].cpu().detach()
-
-            target_x_sample = target_x[idx].cpu().detach()
-            target_y_sample = target_y[idx].cpu().detach()
-
-            mu_sample = mu[idx].cpu().detach()
-            sigma_sample = sigma[idx].cpu().detach()
-
-            if sigma_sample.dim() == 2:
-                sigma_sample = torch.sqrt(torch.diagonal(sigma_sample))
-
-            context_x_idx = torch.argsort(context_x_sample.flatten())
-            context_x_sample = context_x_sample[context_x_idx]
-            context_y_sample = context_y_sample[context_x_idx]
-
-            target_x_idx = torch.argsort(target_x_sample.flatten())
-            target_x_sample = target_x_sample[target_x_idx]
-            target_y_sample = target_y_sample[target_x_idx]
-
-            mu_sample = mu_sample[target_x_idx]
-            sigma_sample = sigma_sample[target_x_idx]
-
-            xlim = target_x_sample.min(), target_x_sample.max()
-            ylim = min(target_y_sample.min(), mu_sample.min()), max(target_y_sample.max(), mu_sample.max())
-
-            ax[row][col].plot(context_x_sample, context_y_sample, "ko", markersize=5)
-            ax[row][col].plot(target_x_sample, target_y_sample, "k:", linewidth=2)
-            ax[row][col].plot(target_x_sample, mu_sample, "b", linewidth=2)
-            ax[row][col].fill_between(target_x_sample[:, 0],
-                                      mu_sample - sigma_sample,
-                                      mu_sample + sigma_sample,
-                                      alpha=0.2,
-                                      facecolor='#65c9f7',
-                                      interpolate=True)
-
-            ax[row][col].set_xlim(xlim)
-            ax[row][col].set_ylim(ylim)
-
-    fig.tight_layout()
-    plt.close(fig=fig)
-
-    if filename is None:
-        filename = "plot.png"
-
-    return fig.savefig(filename)
+import npd
 
 
-def plot_from_dataset(gen, model, filename):
-    task = next(iter(gen))
-
-    mu, sigma = model(task['x_context'].cuda(), task['y_context'].cuda(), task['x_target'].cuda())
-    mu, sigma = mu.cpu(), sigma.cpu()
-
-    plot_function(task['x_context'], task['y_context'], task['x_target'], task['y_target'], mu, sigma, filename=filename)
+__all__ = [
+    "get_plot",
+]
 
 
-# if __name__ == '__main__':
-#     import stheno.torch as stheno
+_abbreviations = {
+    "eq": "eq",
+    "mt": "matern",
+    "matern": "matern",
+    "wp": "weakly-periodic",
+    "weakly-periodic": "weakly-periodic",
+    "nm": "noisy-mixture",
+    "noisy-mixture": "noisy-mixture",
+    "st": "sawtooth",
+    "sawtooth": "sawtooth",
+}
 
-#     from neural_process.utils import data
-#     from neural_process import models
 
-#     kernel = stheno.EQ().stretch(0.25)
-#     gen = data.GPGenerator(kernel=kernel, num_tasks=1)
-#     model = models.GNP().cuda()
+def _collate_process(dataset, num_context_min=3, num_context_max=50):
+    data_list = []
 
-#     plot_from_dataset(gen, model, "plot.png")
+    for index in range(dataset.num_task):
+        x, y = dataset[index]
+        x, y = x[None, ...], y[None, ...]
+
+        generator = torch.Generator().manual_seed(index)
+        idx_prem = torch.randperm(x.shape[1], generator=generator, device=x.device)
+        num_context = torch.randint(num_context_min, num_context_max + 1,
+                                    size=(1,), generator=generator, device=x.device)
+        context_idx = idx_prem[:num_context]
+        x_context, y_context = x[:, context_idx, :], y[:, context_idx, :]
+        x_target, y_target = x, y
+
+        data_list.append((x_context, y_context, x_target, y_target))
+
+    return data_list
+
+
+def get_plot(data, num_task=16, **data_kwargs):
+    if "/" in data:
+        try:
+            match = re.match(r"(.+)\/s(\d+)", data)
+            name, seed = match[1], int(match[2])
+        except:
+            raise ValueError("Data must be in the form of '{name}/s{seed}' or '{name}'")
+    else:
+        name, seed = data, 0
+
+    name = _abbreviations[name]
+
+    if name in ["eq", "matern", "weakly-periodic", "noisy-mixture", "sawtooth"]:
+        dataset = npd.get_dataset(name, seed=seed*1111, num_task=num_task, plot_mode=True, **data_kwargs)
+        plot_data = _collate_process(dataset, num_context_max=(100 if name == "sawtooth" else 50))
+        plot_fn = npd.utils.plot.process
+    else:
+        raise ValueError(f"Unsupported data: '{name}'")
+
+    return plot_data, plot_fn
