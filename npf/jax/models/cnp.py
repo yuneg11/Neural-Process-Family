@@ -7,6 +7,7 @@ from flax import linen as nn
 
 from .base import ConditionalNPF
 
+from .. import functional as F
 from ..modules import (
     MLP,
 )
@@ -23,56 +24,61 @@ class CNPBase(ConditionalNPF):
     Base class of Conditional Neural Process
 
     Args:
-        encoder : [batch, ctx, x_dim + y_dim]
-               -> [batch, ctx, r_dim]
-        decoder : [batch, tar, x_dim + r_dim]
-               -> [batch, tar, y_dim * 2]
+        encoder : [..., context, x_dim + y_dim]
+               -> [..., context, r_dim]
+        decoder : [...,  target, x_dim + r_dim]
+               -> [...,  target, y_dim * 2]
     """
 
     encoder: nn.Module
     decoder: nn.Module
 
     def _aggregate(self,
-        r_i_ctx:  Float[B, C, R],
-        x_ctx:    Float[B, C, X],
-        x_tar:    Float[B, T, X],
-        mask_ctx: Float[B, C],
-    ) -> Float[B, T, R]:
+        r_i_ctx:  NDArray[..., C, R],
+        x_ctx:    NDArray[..., C, X],
+        x_tar:    NDArray[..., T, X],
+        mask_ctx: NDArray[C],
+    ) -> NDArray[..., T, R]:
 
-        mask_ctx = jnp.expand_dims(mask_ctx, axis=-1)                           # [batch, ctx, 1]
-        r_i_ctx = jnp.where(mask_ctx, r_i_ctx, 0.)                              # [batch, ctx, r_dim]
-        r_ctx = jnp.sum(r_i_ctx,  axis=1, keepdims=True) \
-              / jnp.sum(mask_ctx, axis=1, keepdims=True)                        # [batch, 1, r_dim]
-        r_ctx = r_ctx.repeat(x_tar.shape[1], axis=1)                            # [batch, tar, r_dim]
+        r_ctx = F.masked_mean(r_i_ctx, mask=mask_ctx, axis=-2, keepdims=True)   # [..., 1, r_dim]
+        r_ctx = r_ctx.repeat(x_tar.shape[-2], axis=-2)                           # [..., target, r_dim]
         return r_ctx
+
+    def _encode(self,
+        x_ctx: NDArray[..., C, X],
+        y_ctx: NDArray[..., C, Y],
+    ) -> NDArray[..., C, R]:
+
+        ctx = jnp.concatenate((x_ctx, y_ctx), axis=-1)                          # [..., context, x_dim + y_dim]
+        r_i = self.encoder(ctx)                                                 # [..., context, r_dim]
+        return r_i
+
+    def _decode(self,
+        query: NDArray[..., T, X + R],
+        mask_tar: NDArray[T],
+    ) -> Tuple[NDArray[..., T, Y], NDArray[..., T, Y]]:
+
+        mu_log_sigma = self.decoder(query)                                      # [..., target, y_dim x 2]
+        mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                     # [..., target, y_dim] x 2
+        sigma = 0.1 + 0.9 * nn.softplus(log_sigma)
+
+        mu    = F.apply_mask(mu,    mask_tar, axis=-2)                          # [..., target, y_dim]
+        sigma = F.apply_mask(sigma, mask_tar, axis=-2)                          # [..., target, y_dim]
+        return mu, sigma
 
     @nn.compact
     def __call__(self,
-        x_ctx:    Float[B, C, X],
-        y_ctx:    Float[B, C, Y],
-        x_tar:    Float[B, T, X],
-        mask_ctx: Float[B, C],
-        mask_tar: Float[B, T],
-    ) -> Tuple[Float[B, T, Y], Float[B, T, Y]]:
+        x_ctx:    NDArray[B, C, X],
+        y_ctx:    NDArray[B, C, Y],
+        x_tar:    NDArray[B, T, X],
+        mask_ctx: NDArray[C],
+        mask_tar: NDArray[T],
+    ) -> Tuple[NDArray[B, T, Y], NDArray[B, T, Y]]:
 
-        # Encode
-        ctx = jnp.concatenate((x_ctx, y_ctx), axis=-1)                          # [batch, ctx, x_dim + y_dim]
-        r_i_ctx = self.encoder(ctx)                                             # [batch, ctx, r_dim]
-
-        # Aggregate
-        r_ctx = self._aggregate(r_i_ctx, x_ctx, x_tar, mask_ctx)                # [batch, tar, r_dim]
-
-        # Decode
-        query = jnp.concatenate((x_tar, r_ctx), axis=-1)                        # [batch, tar, x_dim + r_dim]
-        mu_log_sigma = self.decoder(query)                                      # [batch, tar, y_dim x 2]
-
-        mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                     # [batch, tar, y_dim] x 2
-        sigma = 0.1 + 0.9 * nn.softplus(log_sigma)
-
-        mask_tar = jnp.expand_dims(mask_tar, axis=-1)                           # [batch, ctx, 1]
-        mu    = jnp.where(mask_tar, mu, 0.)
-        sigma = jnp.where(mask_tar, sigma, 0.)
-
+        r_i_ctx = self._encode(x_ctx, y_ctx)                                    # [batch, context, r_dim]
+        r_ctx = self._aggregate(r_i_ctx, x_ctx, x_tar, mask_ctx)                # [batch, target, r_dim]
+        query = jnp.concatenate((x_tar, r_ctx), axis=-1)                        # [batch, target, x_dim + r_dim]
+        mu, sigma = self._decode(query, mask_tar)                               # [batch, target, y_dim] x 2
         return mu, sigma
 
 

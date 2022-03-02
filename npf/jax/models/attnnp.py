@@ -5,7 +5,7 @@ import numpy as np
 from jax import numpy as jnp
 from flax import linen as nn
 
-from .cnp import CNPBase
+from .np import NPBase
 
 from ..modules import (
     MLP,
@@ -20,9 +20,9 @@ __all__ = [
 ]
 
 
-class AttnCNPBase(CNPBase):
+class AttnNPBase(NPBase):
     """
-    Base class of Attentive Conditional Neural Process
+    Base class of Attentive Neural Process
 
     Args:
         encoder         : [batch, context, x_dim + y_dim]
@@ -44,22 +44,27 @@ class AttnCNPBase(CNPBase):
 
         if self.self_attention is not None:
             r_i_ctx = self.self_attention(r_i_ctx, mask=mask_ctx)
-        r_ctx = self.cross_attention(x_tar, x_ctx, r_i_ctx, mask=mask_ctx)      # [batch, target, r_dim]
+        r_ctx = self.cross_attention(x_tar, x_ctx, r_i_ctx, mask=mask_ctx)                          # [batch, target, r_dim]
 
         return r_ctx
 
 
-class AttnCNP(AttnCNPBase):
+class AttnNP(AttnNPBase):
     """
-    Attentive Conditional Neural Process
+    Attentive Neural Process
     """
 
     def __new__(cls,
         y_dim: int,
         r_dim: int = 128,
-        sa_heads: Optional[int] = 8,
-        ca_heads: Optional[int] = 8,
-        encoder_dims: Sequence[int] = (128, 128, 128, 128, 128),
+        z_dim: int = 128,
+        common_sa_heads: Optional[int] = None,
+        latent_sa_heads: Optional[int] = None,
+        determ_sa_heads: Optional[int] = None,
+        determ_ca_heads: Optional[int] = 8,
+        common_encoder_dims: Optional[Sequence[int]] = None,
+        latent_encoder_dims: Optional[Sequence[int]] = [128, 128],
+        determ_encoder_dims: Optional[Sequence[int]] = [128, 128, 128, 128, 128],
         decoder_dims: Sequence[int] = (128, 128, 128),
     ):
 
@@ -73,7 +78,7 @@ class AttnCNP(AttnCNPBase):
         cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=ca_heads)
         decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
 
-        return AttnCNPBase(
+        return AttnNPBase(
             encoder=encoder,
             self_attention=self_attention,
             cross_attention=cross_attention,

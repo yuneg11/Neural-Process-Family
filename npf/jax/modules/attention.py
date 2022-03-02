@@ -33,18 +33,20 @@ class MultiheadAttention(nn.Module):
     def gather(self, x):
         return jnp.concatenate(jnp.split(x, self.num_heads, axis=-3), axis=-1)
 
-    def attend(self, q, k, v, mask = None):
+    def attend(self, q, k, v, mask=None):
         q_, k_, v_ = self.scatter(q), self.scatter(k), self.scatter(v)
         A_logits = q_ @ k_.swapaxes(-2,-1) / math.sqrt(self.dim_out)
 
         if mask is not None:
             mask = jnp.bool_(mask)
-            mask = jnp.stack([mask]*q.shape[-2], axis = -2)
-            mask = jnp.concatenate([mask]*self.num_heads, axis = -3)
-            A = jax.nn.softmax(masked_fill(mask, A_logits, -float('inf')), -1)
-            A = masked_fill(jnp.isnan(A), A, 0.0)
+            mask = jnp.stack([mask] * q.shape[-2], axis=-2)
+            mask = jnp.concatenate([mask] * self.num_heads, axis = -3)
+            # A = jax.nn.softmax(A_logits, where=mask, initial=0, axis=-1)  # TODO: Check below code can be replaced with this.
+            A = jax.nn.softmax(jnp.where(mask, A_logits, -float('inf')), axis=-1)
+            A = jnp.where(jnp.isnan(A), 0.0, A)
         else:
-            A = jax.nn.softmax(A_logits, -1)
+            A = jax.nn.softmax(A_logits, axis=-1)
+
         return self.gather(A @ v_)
 
     def __call__(self, q, k, v, mask=None):
@@ -57,96 +59,3 @@ class MultiheadAttention(nn.Module):
 class MultiheadSelfAttention(MultiheadAttention):
     def __call__(self, q, mask=None):
         return super().__call__(q, q, q, mask=mask)
-
-
-
-
-
-# class CrossAttnEncoder(nn.Module):
-#     dim_x: int = 1
-#     dim_y: int = 1
-#     dim_hid: int = 128
-#     dim_lat: int = None
-#     use_self_attn: bool = True
-#     v_depth: int = 4
-#     qk_depth: int = 2
-
-#     def setup(self):
-#         self.use_lat = self.dim_lat is not None
-#         if not self.use_self_attn:
-#             self.net_v = _MLP(
-#                 dim_hid = self.dim_hid,
-#                 dim_out = self.dim_hid,
-#                 depth   = self.v_depth,
-#             )
-#         else:
-#             self.net_v = _MLP(
-#                 dim_hid = self.dim_hid,
-#                 dim_out = self.dim_hid,
-#                 depth   = self.v_depth - 2,
-#             )
-#             self.self_attn = SelfAttn(dim_out=self.dim_hid)
-
-#         self.net_qk = MLP(
-#             dim_hid = self.dim_hid,
-#             dim_out = self.dim_hid,
-#             depth   = self.qk_depth,
-#         )
-#         if self.use_lat:
-#             self.attn = MultiHeadAttn(dim_out=2*self.dim_lat)
-#         else:
-#             self.attn = MultiHeadAttn(dim_out=self.dim_hid)
-
-#     def __call__(self, xc, yc, xt, mask = None, **kwargs):
-#         q, k = self.net_qk(xt, **kwargs), self.net_qk(xc, **kwargs)
-#         v = self.net_v(jnp.concatenate([xc, yc], axis=-1), **kwargs)
-
-#         if self.use_self_attn:
-#             v = self.self_attn(v, mask=mask, **kwargs)
-
-#         out = self.attn(q, k , v, mask=mask, **kwargs)
-#         if self.use_lat:
-#             mu, sigma = jnp.split(out, 2, axis=-1)
-#             sigma = 0.1 + 0.9 * nn.sigmoid(sigma)
-#             return mu, sigma
-#         else:
-#             return out
-
-
-# class NeuCrossAttnEncoder(nn.Module):
-#     dim_hid: int = 128
-#     dim_lat: int = None
-#     use_self_attn: bool = True
-#     v_depth: int = 4
-#     qk_depth: int = 2
-
-#     def setup(self):
-#         self.use_lat = self.dim_lat is not None
-#         if not self.use_self_attn:
-#             self.net_v = _MLP(dim_hid = self.dim_hid, dim_out = self.dim_hid, depth = self.v_depth)
-#         else:
-#             self.net_v = _MLP(dim_hid = self.dim_hid, dim_out = self.dim_hid, depth = self.v_depth-2)
-#             self.self_attn = SelfAttn(dim_out = self.dim_hid)
-
-#         self.net_qk = _MLP(dim_hid = self.dim_hid, dim_out = self.dim_hid, depth = self.qk_depth)
-
-#         if self.use_lat:
-#             self.attn = MultiHeadAttn(dim_out = 2*self.dim_lat)
-#         else:
-#             self.attn = MultiHeadAttn(dim_out = self.dim_hid)
-
-#     def __call__(self, xc, yc, xt, w, mask = None, **kwargs):
-#         q, k = self.net_qk(xt, **kwargs), self.net_qk(xc, **kwargs)
-#         v = self.net_v(jnp.concatenate([xc, yc], axis = -1), **kwargs)
-
-#         if self.use_self_attn:
-#             v = self.self_attn(v, mask = mask, **kwargs)
-
-#         v = v * w
-#         out = self.attn(q, k, v, mask = mask, **kwargs)
-#         if self.use_lat:
-#             mu, sigma = jnp.split(out, 2, axis=-1)
-#             sigma = 0.1 + 0.9 * nn.sigmoid(sigma)
-#             return mu, sigma
-#         else:
-#             return out

@@ -1,12 +1,12 @@
 import math
 from dataclasses import dataclass
 
-import numpy as np
-
 import jax
 import jax.numpy as jnp
 from jax import random
 from jax.random import multivariate_normal, t, randint, uniform
+
+from . import functional as F
 
 
 __all__ = [
@@ -21,27 +21,14 @@ __all__ = [
 @dataclass
 class GPData:
     x: jnp.ndarray
+    y: jnp.ndarray
     x_ctx: jnp.ndarray
     x_tar: jnp.ndarray
-    y: jnp.ndarray
     y_ctx: jnp.ndarray
     y_tar: jnp.ndarray
-    mask: jnp.ndarray
+    mask:     jnp.ndarray
     mask_ctx: jnp.ndarray
     mask_tar: jnp.ndarray
-
-
-def get_mask(shape, start, stop, axis=-1):
-    """
-    Get a mask of shape which filled ones at first n indices along axis.
-    """
-    axis = axis + len(shape) if axis < 0 else axis
-    axis_start_mask = (jnp.arange(shape[axis]) >= start)
-    axis_stop_mask = (jnp.arange(shape[axis]) < stop)
-    axis_mask = (axis_start_mask & axis_stop_mask)
-    mask = jnp.expand_dims(axis_mask, axis=[i for i in range(len(shape)) if i != axis])
-    mask = jnp.broadcast_to(mask, shape)
-    return mask
 
 
 class GPPriorSampler:
@@ -80,9 +67,9 @@ class GPSampler:
         num_tar = int(num_tar or (randint(keys[1], shape=[1], minval=3, maxval=max_num_points - num_ctx))[0])
         num_points = num_ctx + num_tar
 
-        mask     = get_mask(shape, start=0,       stop=num_points, axis=1)
-        mask_ctx = get_mask(shape, start=0,       stop=num_ctx,    axis=1)
-        mask_tar = get_mask(shape, start=num_ctx, stop=num_points, axis=1)
+        mask     = F.get_mask(max_num_points, start=0,       stop=num_points)
+        mask_ctx = F.get_mask(max_num_points, start=0,       stop=num_ctx)
+        mask_tar = F.get_mask(max_num_points, start=num_ctx, stop=num_points)
 
         x = x_range[0] + (x_range[1] - x_range[0]) * uniform(keys[2], shape=shape)
 
@@ -98,19 +85,16 @@ class GPSampler:
                 t_noise = self.t_noise
             y += t_noise * t(keys[6], shape=y.shape)
 
-        x_zeros = jnp.zeros_like(x)
-        y_zeros = jnp.zeros_like(y)
-
         batch = GPData(
-            x=x,
-            x_ctx=jnp.where(mask_ctx, x, x_zeros),
-            x_tar=jnp.where(mask_tar, x, x_zeros),
-            y=y,
-            y_ctx=jnp.where(mask_ctx, y, y_zeros),
-            y_tar=jnp.where(mask_tar, y, y_zeros),
-            mask=mask[..., 0],
-            mask_ctx=mask_ctx[..., 0],
-            mask_tar=mask_tar[..., 0],
+            x     = F.apply_mask(x, mask,     fill_value=0, axis=-2),
+            y     = F.apply_mask(y, mask,     fill_value=0, axis=-2),
+            x_ctx = F.apply_mask(x, mask_ctx, fill_value=0, axis=-2),
+            y_ctx = F.apply_mask(y, mask_ctx, fill_value=0, axis=-2),
+            x_tar = F.apply_mask(x, mask_tar, fill_value=0, axis=-2),
+            y_tar = F.apply_mask(y, mask_tar, fill_value=0, axis=-2),
+            mask     = mask,
+            mask_ctx = mask_ctx,
+            mask_tar = mask_tar,
         )
         return batch
 
