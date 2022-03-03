@@ -28,22 +28,24 @@ class MultiheadAttention(nn.Module):
         self.ln2    = nn.LayerNorm()
 
     def scatter(self, x):
-        return jnp.concatenate(jnp.split(x, self.num_heads, axis=-1), axis=-3)
+        return jnp.concatenate(jnp.split(x, self.num_heads, axis=-1), axis=0)
 
     def gather(self, x):
-        return jnp.concatenate(jnp.split(x, self.num_heads, axis=-3), axis=-1)
+        return jnp.concatenate(jnp.split(x, self.num_heads, axis=0), axis=-1)
 
     def attend(self, q, k, v, mask=None):
         q_, k_, v_ = self.scatter(q), self.scatter(k), self.scatter(v)
-        A_logits = q_ @ k_.swapaxes(-2,-1) / math.sqrt(self.dim_out)
+        A_logits = q_ @ k_.swapaxes(-2, -1) / math.sqrt(self.dim_out)
 
         if mask is not None:
             mask = jnp.bool_(mask)
             mask = jnp.stack([mask] * q.shape[-2], axis=-2)
-            mask = jnp.concatenate([mask] * self.num_heads, axis = -3)
+            mask = jnp.concatenate([mask] * self.num_heads, axis=0)
+            if A_logits.ndim == 4:
+                mask = jnp.expand_dims(mask, axis=1)
             # A = jax.nn.softmax(A_logits, where=mask, initial=0, axis=-1)  # TODO: Check below code can be replaced with this.
             A = jax.nn.softmax(jnp.where(mask, A_logits, -float('inf')), axis=-1)
-            A = jnp.where(jnp.isnan(A), 0.0, A)
+            A = jnp.where(jnp.isnan(A), 0., A)
         else:
             A = jax.nn.softmax(A_logits, axis=-1)
 

@@ -7,6 +7,7 @@ from flax import linen as nn
 
 from .cnp import CNPBase
 
+from .. import functional as F
 from ..modules import (
     MLP,
     MultiheadAttention,
@@ -36,15 +37,17 @@ class AttnCNPBase(CNPBase):
     self_attention: Optional[nn.Module] = None
 
     def _aggregate(self,
-        r_i_ctx:  Float[B, C, R],
-        x_ctx:    Float[B, C, X],
-        x_tar:    Float[B, T, X],
-        mask_ctx: Float[B, C],
-    ) -> Float[B, T, R]:
+        r_i_ctx:  NDArray[..., C, R],
+        x_ctx:    NDArray[..., C, X],
+        x_tar:    NDArray[..., T, X],
+        mask_ctx: NDArray[C],
+    ) -> NDArray[..., T, R]:
+
+        attn_mask_ctx = F.repeat_axis(mask_ctx, axis=0, repeats=x_tar.shape[0])
 
         if self.self_attention is not None:
-            r_i_ctx = self.self_attention(r_i_ctx, mask=mask_ctx)
-        r_ctx = self.cross_attention(x_tar, x_ctx, r_i_ctx, mask=mask_ctx)      # [batch, target, r_dim]
+            r_i_ctx = self.self_attention(r_i_ctx, mask=attn_mask_ctx)
+        r_ctx = self.cross_attention(x_tar, x_ctx, r_i_ctx, mask=attn_mask_ctx)      # [batch, target, r_dim]
 
         return r_ctx
 

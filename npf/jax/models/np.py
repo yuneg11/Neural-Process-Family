@@ -26,12 +26,9 @@ class NPBase(LatentNPF):
     Base class of Neural Process
 
     Args:
-        latent_encoder : [batch, context, x_dim + y_dim]
-                      -> [batch, context, z_dim * 2]
-        determ_encoder : [batch, context, x_dim + y_dim]
-                      -> [batch, context, r_dim]
-        decoder        : [batch, latent, target, x_dim (+ r_dim) + z_dim]
-                      -> [batch, latent, target, y_dim * 2]
+        latent_encoder : [batch, context, x_dim + y_dim] -> [batch, context, z_dim * 2]
+        determ_encoder : [batch, context, x_dim + y_dim] -> [batch, context, r_dim]
+        decoder        : [batch, latent, target, x_dim (+ r_dim) + z_dim] -> [batch, latent, target, y_dim * 2]
     """
 
     latent_encoder: nn.Module
@@ -94,8 +91,8 @@ class NPBase(LatentNPF):
         mask_ctx: NDArray[B, C],
     ) -> NDArray[B, T, R]:
 
-        r_ctx = F.masked_mean(r_i_ctx, mask_ctx, axis=1, keepdims=True)          # [batch, 1, r_dim]
-        r_ctx = r_ctx.repeat(x_tar.shape[1], axis=1)                                     # [batch, tar, r_dim]
+        r_ctx = F.masked_mean(r_i_ctx, mask_ctx, axis=1, keepdims=True)         # [batch, 1, r_dim]
+        r_ctx = r_ctx.repeat(x_tar.shape[1], axis=1)                            # [batch, tar, r_dim]
         return r_ctx
 
     @staticmethod
@@ -105,8 +102,8 @@ class NPBase(LatentNPF):
     ) -> Tuple[NDArray[B, 1, Z], NDArray[B, 1, Z]]:
 
         mu_log_sigma = F.masked_mean(z_i, mask_ctx, axis=1, keepdims=True)
-        mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, 1, z_dim] x 2
-        sigma = 0.1 + 0.9 * nn.sigmoid(log_sigma)                                                   # [batch, 1, z_dim]
+        mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                     # [batch, 1, z_dim] x 2
+        sigma = 0.1 + 0.9 * nn.sigmoid(log_sigma)                               # [batch, 1, z_dim]
         return mu, sigma
 
     # Decode
@@ -119,14 +116,14 @@ class NPBase(LatentNPF):
     ) -> Union[NDArray[B, L, T, X + R + Z], NDArray[B, L, T, X + Z]]:
 
         num_tars = x_tar.shape[1]
-        z_samples = z_samples.repeat(num_tars, axis=2)                                           # [batch, latent, tar, z_dim]
+        z_samples = z_samples.repeat(num_tars, axis=2)                          # [batch, latent, tar, z_dim]
         x_tar = F.repeat_axis(x_tar, repeats=num_latents, axis=1)
 
         if r_ctx is not None:
             r_ctx = F.repeat_axis(r_ctx, repeats=num_latents, axis=1)
-            query = jnp.concatenate((x_tar, r_ctx, z_samples), axis=-1)                      # [batch, latent, tar, x_dim + r_dim + z_dim]
+            query = jnp.concatenate((x_tar, r_ctx, z_samples), axis=-1)         # [batch, latent, tar, x_dim + r_dim + z_dim]
         else:
-            query = jnp.concatenate((x_tar, z_samples), axis=-1)                                 # [batch, latent, tar, x_dim + z_dim]
+            query = jnp.concatenate((x_tar, z_samples), axis=-1)                # [batch, latent, tar, x_dim + z_dim]
 
         return query
 
@@ -135,9 +132,9 @@ class NPBase(LatentNPF):
         mask_tar: NDArray[B, T],
     ) -> Tuple[NDArray[B, L, T, Y], NDArray[B, L, T, Y]]:
 
-        mu_log_sigma = self.decoder(query)                                                          # [batch, latent, tar, y_dim x 2]
-        mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, latent, tar, y_dim] x 2
-        sigma = 0.1 + 0.9 * nn.softplus(log_sigma)                                                  # [batch, latent, tar, y_dim]
+        mu_log_sigma = self.decoder(query)                                      # [batch, latent, tar, y_dim x 2]
+        mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                     # [batch, latent, tar, y_dim] x 2
+        sigma = 0.1 + 0.9 * nn.softplus(log_sigma)                              # [batch, latent, tar, y_dim]
 
         mu    = F.apply_mask(mu,    mask_tar, axis=-2)                          # [..., target, y_dim]
         sigma = F.apply_mask(sigma, mask_tar, axis=-2)                          # [..., target, y_dim]
@@ -154,26 +151,26 @@ class NPBase(LatentNPF):
     ) -> Tuple[NDArray[B, L, T, Y], NDArray[B, L, T, Y]]:
 
         # Encode
-        ctx = jnp.concatenate((x_ctx, y_ctx), axis=-1)                                  # [batch, ctx, x_dim + y_dim]
-        z_i_ctx, r_i_ctx = self._encode(ctx)                                            # [batch, ctx, z_dim], [batch, ctx, r_dim]
+        ctx = jnp.concatenate((x_ctx, y_ctx), axis=-1)                          # [batch, ctx, x_dim + y_dim]
+        z_i_ctx, r_i_ctx = self._encode(ctx)                                    # [batch, ctx, z_dim], [batch, ctx, r_dim]
 
         # Latent representation
-        z_ctx_mu, z_ctx_sigma = self._latent_dist(z_i_ctx, mask_ctx)                # [batch, 1, z_dim] x 2
+        z_ctx_mu, z_ctx_sigma = self._latent_dist(z_i_ctx, mask_ctx)            # [batch, 1, z_dim] x 2
 
         rng = self.make_rng("sample")
         num_batch, z_dim = z_ctx_mu.shape[0], z_ctx_mu.shape[2]
         z_samples = z_ctx_mu + z_ctx_sigma * random.normal(rng, shape=(num_batch, num_latents, z_dim))  # [batch, latent, z_dim]
-        z_samples = jnp.expand_dims(z_samples, axis=2)                                              # [batch, latent, 1, z_dim]
+        z_samples = jnp.expand_dims(z_samples, axis=2)                          # [batch, latent, 1, z_dim]
 
         # Deterministic representation
         if r_i_ctx is not None:
-            r_ctx = self._determ_aggregate(r_i_ctx, x_ctx, x_tar, mask_ctx)      # [batch, tar, r_dim])
+            r_ctx = self._determ_aggregate(r_i_ctx, x_ctx, x_tar, mask_ctx)     # [batch, tar, r_dim])
         else:
             r_ctx = None
 
         # Decode
-        query = self._build_query(x_tar, z_samples, r_ctx, num_latents)                      # [batch, latent, tar, x_dim (+ r_dim) + z_dim]
-        mu, sigma = self._decode(query, mask_tar)                                                # [batch, latent, tar, y_dim] * 2
+        query = self._build_query(x_tar, z_samples, r_ctx, num_latents)         # [batch, latent, tar, x_dim (+ r_dim) + z_dim]
+        mu, sigma = self._decode(query, mask_tar)                               # [batch, latent, tar, y_dim] * 2
 
         return mu, sigma
 
@@ -190,30 +187,30 @@ class NPBase(LatentNPF):
     ) -> NDArray:
 
         # Encode
-        ctx = jnp.concatenate((x_ctx, y_ctx), axis=-1)                                              # [batch, ctx, x_dim + y_dim]
-        tar = jnp.concatenate((x_tar, y_tar), axis=-1)                                              # [batch, tar, x_dim + y_dim]
+        ctx = jnp.concatenate((x_ctx, y_ctx), axis=-1)                          # [batch, ctx, x_dim + y_dim]
+        tar = jnp.concatenate((x_tar, y_tar), axis=-1)                          # [batch, tar, x_dim + y_dim]
 
-        z_i_ctx, r_i_ctx = self._encode(ctx)                                                        # [batch, ctx, z_dim], [batch, ctx, r_dim]
-        z_i_tar = self._latent_encode_only(tar)                                                     # [batch, tar, z_dim]
+        z_i_ctx, r_i_ctx = self._encode(ctx)                                    # [batch, ctx, z_dim], [batch, ctx, r_dim]
+        z_i_tar = self._latent_encode_only(tar)                                 # [batch, tar, z_dim]
 
         # Latent representation
-        z_ctx_mu, z_ctx_sigma = self._latent_dist(z_i_ctx, mask_ctx)                                # [batch, 1, z_dim] x 2
-        z_tar_mu, z_tar_sigma = self._latent_dist(z_i_tar, mask_tar)                                # [batch, 1, z_dim] x 2
+        z_ctx_mu, z_ctx_sigma = self._latent_dist(z_i_ctx, mask_ctx)            # [batch, 1, z_dim] x 2
+        z_tar_mu, z_tar_sigma = self._latent_dist(z_i_tar, mask_tar)            # [batch, 1, z_dim] x 2
 
         rng = self.make_rng("sample")
         num_batch, z_dim = z_ctx_mu.shape[0], z_ctx_mu.shape[2]
         z_samples = z_ctx_mu + z_ctx_sigma * random.normal(rng, shape=(num_batch, num_latents, z_dim))  # [batch, latent, z_dim]
-        z_samples = jnp.expand_dims(z_samples, axis=2)                                              # [batch, latent, 1, z_dim]
+        z_samples = jnp.expand_dims(z_samples, axis=2)                          # [batch, latent, 1, z_dim]
 
         # Deterministic representation
         if r_i_ctx is not None:
-            r_ctx = self._determ_aggregate(r_i_ctx, x_ctx, x_tar, mask_ctx)                         # [batch, tar, r_dim])
+            r_ctx = self._determ_aggregate(r_i_ctx, x_ctx, x_tar, mask_ctx)     # [batch, tar, r_dim])
         else:
             r_ctx = None
 
         # Decode
-        query = self._build_query(x_tar, z_samples, r_ctx, num_latents)                      # [batch, latent, tar, x_dim (+ r_dim) + z_dim]
-        mu, sigma = self._decode(query, mask_tar)                                                # [batch, latent, tar, y_dim] * 2
+        query = self._build_query(x_tar, z_samples, r_ctx, num_latents)         # [batch, latent, tar, x_dim (+ r_dim) + z_dim]
+        mu, sigma = self._decode(query, mask_tar)                               # [batch, latent, tar, y_dim] * 2
 
         # Loss
         log_likelihood = self._log_likelihood(y_tar, mu, sigma)                 # [batch, latent, tar]
@@ -221,9 +218,9 @@ class NPBase(LatentNPF):
         log_likelihood = jnp.mean(log_likelihood)                               # [1]
 
         kl_divergence = self._kl_divergence(z_tar_mu, z_tar_sigma, z_ctx_mu, z_ctx_sigma)  # [batch, 1, z_dim]
-        kl_divergence = jnp.mean(kl_divergence)                                                     # [1]
+        kl_divergence = jnp.mean(kl_divergence)                                 # [1]
 
-        loss = -log_likelihood + kl_divergence                                                      # [1]
+        loss = -log_likelihood + kl_divergence                                  # [1]
 
         return loss
 

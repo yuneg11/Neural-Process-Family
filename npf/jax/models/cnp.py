@@ -24,25 +24,12 @@ class CNPBase(ConditionalNPF):
     Base class of Conditional Neural Process
 
     Args:
-        encoder : [..., context, x_dim + y_dim]
-               -> [..., context, r_dim]
-        decoder : [...,  target, x_dim + r_dim]
-               -> [...,  target, y_dim * 2]
+        encoder : [..., context, x_dim + y_dim] -> [..., context, r_dim]
+        decoder : [...,  target, x_dim + r_dim] -> [...,  target, y_dim * 2]
     """
 
     encoder: nn.Module
     decoder: nn.Module
-
-    def _aggregate(self,
-        r_i_ctx:  NDArray[..., C, R],
-        x_ctx:    NDArray[..., C, X],
-        x_tar:    NDArray[..., T, X],
-        mask_ctx: NDArray[C],
-    ) -> NDArray[..., T, R]:
-
-        r_ctx = F.masked_mean(r_i_ctx, mask=mask_ctx, axis=-2, keepdims=True)   # [..., 1, r_dim]
-        r_ctx = r_ctx.repeat(x_tar.shape[-2], axis=-2)                           # [..., target, r_dim]
-        return r_ctx
 
     def _encode(self,
         x_ctx: NDArray[..., C, X],
@@ -52,6 +39,17 @@ class CNPBase(ConditionalNPF):
         ctx = jnp.concatenate((x_ctx, y_ctx), axis=-1)                          # [..., context, x_dim + y_dim]
         r_i = self.encoder(ctx)                                                 # [..., context, r_dim]
         return r_i
+
+    def _aggregate(self,
+        r_i_ctx:  NDArray[..., C, R],
+        x_ctx:    NDArray[..., C, X],
+        x_tar:    NDArray[..., T, X],
+        mask_ctx: NDArray[C],
+    ) -> NDArray[..., T, R]:
+
+        r_ctx = F.masked_mean(r_i_ctx, mask=mask_ctx, axis=-2, keepdims=True)   # [..., 1, r_dim]
+        r_ctx = r_ctx.repeat(x_tar.shape[-2], axis=-2)                          # [..., target, r_dim]
+        return r_ctx
 
     def _decode(self,
         query: NDArray[..., T, X + R],
