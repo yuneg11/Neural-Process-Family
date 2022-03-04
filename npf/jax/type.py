@@ -7,14 +7,12 @@ from typing import (
     Any,
     Callable,
 )
-from nptyping import Float, Bool
 
 
 #! TODO: temporary wrapper
-class NDArray(type):
+class Array(type):
     def __class_getitem__(cls, *args):
         pass
-
 
 
 class TensorDim(str):

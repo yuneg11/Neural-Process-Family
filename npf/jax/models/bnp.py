@@ -28,8 +28,8 @@ __all__ = [
 
 def sample_with_replacement(
     key: random.KeyArray,
-    *items: Sequence[Union[NDArray[B, P, X], NDArray[B, S, P, X]]],
-    mask: NDArray[B, P],
+    *items: Sequence[Union[Array[B, P, X], Array[B, S, P, X]]],
+    mask: Array[B, P],
     num_samples: Optional[int] = None,
 ):
     _x = items[0]
@@ -66,23 +66,21 @@ class BNPMeta:
         else:
             raise ValueError(f"Unknown class: {item}")
 
-    @nn.compact
-    def __call__(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        mask_ctx: NDArray[C],
-        mask_tar: NDArray[T],
+    def _predict(self,
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        mask_ctx: Array[C],
+        mask_tar: Array[T],
         num_samples: int = 1,
-        _return_base: bool = False,
-    ) -> Tuple[NDArray[B, S, T, Y], NDArray[B, S, T, Y]]:
+    ) -> Tuple[Array[B, S, T, Y], Array[B, S, T, Y], Array[B, T, R]]:
 
         # Bootstrapping
         key = self.make_rng("sample")
         b_x_ctx, b_y_ctx = sample_with_replacement(key, x_ctx, y_ctx, mask=mask_ctx, num_samples=num_samples)  # [batch, sample, context, x_dim], [batch, sample, context, y_dim]
         s_x_ctx = F.repeat_axis(x_ctx, num_samples, axis=-3)                    # [batch, sample, context, x_dim]
 
-        b_r_i_ctx = self._encode(b_x_ctx, b_y_ctx)                              # [batch, sample, context, r_dim]
+        b_r_i_ctx = self._encode(b_x_ctx, b_y_ctx, mask_ctx)                    # [batch, sample, context, r_dim]
         b_r_ctx = self._aggregate(b_r_i_ctx, b_x_ctx, s_x_ctx, mask_ctx)        # [batch, sample, context, r_dim]
 
         b_query = jnp.concatenate((b_x_ctx, b_r_ctx), axis=-1)                  # [batch, sample, context, x_dim + r_dim]
@@ -98,12 +96,12 @@ class BNPMeta:
         res_y_ctx = b_mu + b_sigma * res
 
         # Encode
-        r_i_ctx = self._encode(x_ctx, y_ctx)
+        r_i_ctx = self._encode(x_ctx, y_ctx, mask_ctx)
         r_ctx = self._aggregate(r_i_ctx, x_ctx, x_tar, mask_ctx)                # [batch, target, r_dim]
 
         s_x_tar = F.repeat_axis(x_tar, num_samples, axis=-3)                    # [batch, sample,  target, y_dim]
-        res_r_i_ctx = self._encode(res_x_ctx, res_y_ctx)                          # [batch, sample, context, r_dim]
-        res_r_ctx = self._aggregate(res_r_i_ctx, res_x_ctx, s_x_tar, mask_ctx)      # [batch, sample,  target, r_dim]
+        res_r_i_ctx = self._encode(res_x_ctx, res_y_ctx, mask_ctx)              # [batch, sample, context, r_dim]
+        res_r_ctx = self._aggregate(res_r_i_ctx, res_x_ctx, s_x_tar, mask_ctx)  # [batch, sample,  target, r_dim]
 
         # Decode
         s_r_ctx = F.repeat_axis(r_ctx, num_samples, axis=-3)                    # [batch, sample, target, r_dim]
@@ -113,24 +111,32 @@ class BNPMeta:
 
         mu, sigma = self._decode(query, mask_tar)
 
-        if _return_base:
-            base_query = jnp.concatenate((x_tar, r_ctx), axis=-1)
-            mu_base, sigma_base = self._decode(base_query, mask_tar)
-            return mu, sigma, mu_base, sigma_base
-        else:
-            return mu, sigma
+        return mu, sigma, r_ctx
+
+    @nn.compact
+    def __call__(self,
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        mask_ctx: Array[C],
+        mask_tar: Array[T],
+        num_samples: int = 1,
+    ) -> Tuple[Array[B, S, T, Y], Array[B, S, T, Y]]:
+
+        mu, sigma, _ = self._predict(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples)
+        return mu, sigma
 
     # Likelihood
 
     def log_likelihood(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[B, C],
-        mask_tar: NDArray[B, T],
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[B, C],
+        mask_tar: Array[B, T],
         num_samples: int = 1,
-    ) -> NDArray:
+    ) -> Array:
         """
         Calculate log-likelihood.
 
@@ -139,15 +145,17 @@ class BNPMeta:
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
             num_samples: int
 
         Returns:
             log_likelihood: float
         """
 
-        mu, sigma, mu_base, sigma_base = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples, _return_base=True)  # [batch, target, y_dim] x 2
+        mu, sigma, r_ctx = self._predict(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples)  # [batch, target, y_dim] x 2, [batch, target, r_dim]
+        base_query = jnp.concatenate((x_tar, r_ctx), axis=-1)                   # [batch, target, x_dim + r_dim]
+        mu_base, sigma_base = self._decode(base_query, mask_tar)                # [batch, target, y_dim] x 2
 
         _y_tar = jnp.expand_dims(y_tar, axis=-3)                                # [..., 1, target, y_dim]
         ll = self._log_likelihood(_y_tar, mu, sigma)                            # [batch, sample, target]
@@ -162,16 +170,15 @@ class BNPMeta:
         log_likelihood = ll + ll_base
         return log_likelihood
 
-
     def loss(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[C],
-        mask_tar: NDArray[T],
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[C],
+        mask_tar: Array[T],
         num_samples: int = 1,
-    ) -> NDArray:
+    ) -> Array:
         """
         Calculate loss.
 
@@ -180,12 +187,12 @@ class BNPMeta:
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
             num_samples: int
 
         Returns:
-            loss      float
+            loss: float
         """
 
         loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_samples=num_samples)
@@ -197,8 +204,8 @@ class BNPBase(BNPMeta["CNPBase"]):
     Base class of Bootstrapping Neural Process
 
     Args:
-        encoder : [batch, ctx, x_dim + y_dim] -> [batch, ctx, r_dim]
-        decoder : [batch, tar, x_dim + r_dim] -> [batch, tar, y_dim * 2]
+        encoder: [batch, ctx, x_dim + y_dim] -> [batch, ctx, r_dim]
+        decoder: [batch, tar, x_dim + r_dim] -> [batch, tar, y_dim * 2]
     """
 
 
@@ -207,8 +214,8 @@ class BANPBase(BNPMeta["AttnCNPBase"]):
     Base class of Bootstrapping Attentive Neural Process
 
     Args:
-        encoder : [batch, ctx, x_dim + y_dim] -> [batch, ctx, r_dim]
-        decoder : [batch, tar, x_dim + r_dim] -> [batch, tar, y_dim * 2]
+        encoder: [batch, ctx, x_dim + y_dim] -> [batch, ctx, r_dim]
+        decoder: [batch, tar, x_dim + r_dim] -> [batch, tar, y_dim * 2]
     """
 
 

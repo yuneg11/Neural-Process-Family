@@ -3,8 +3,6 @@ from ..type import *
 import math
 from abc import abstractmethod
 
-import numpy as np
-
 import jax
 from jax import numpy as jnp
 from jax.scipy import stats
@@ -63,17 +61,17 @@ class ConditionalNPF(UnivariateNPF):
 
     @staticmethod
     def _log_likelihood(
-        y:     NDArray[..., T, Y],
-        mu:    NDArray[..., T, Y],
-        sigma: NDArray[..., T, Y],
-    ) -> NDArray[..., T]:
+        y:     Array[..., T, Y],
+        mu:    Array[..., T, Y],
+        sigma: Array[..., T, Y],
+    ) -> Array[..., T]:
         """
         Calculate element-wise log-likelihood of Gaussian distribution.
 
         Args:
-            y_tar:       Array[batch, target, y_dim]
-            mu:          Array[batch, target, y_dim]
-            sigma:       Array[batch, target, y_dim]
+            y_tar: Array[batch, target, y_dim]
+            mu:    Array[batch, target, y_dim]
+            sigma: Array[batch, target, y_dim]
 
         Returns:
             log_likelihood: Array[batch, target]
@@ -87,19 +85,19 @@ class ConditionalNPF(UnivariateNPF):
 
     @abstractmethod
     def __call__(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        mask_ctx: NDArray[C],
-        mask_tar: NDArray[T],
-    ) -> Tuple[NDArray[B, ..., T, Y], NDArray[B, ..., T, Y]]:
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        mask_ctx: Array[C],
+        mask_tar: Array[T],
+    ) -> Tuple[Array[B, ..., T, Y], Array[B, ..., T, Y]]:
         """
         Args:
             x_ctx:    Array[batch, context, x_dim]
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
 
         Returns:
             mu:       Array[batch, target, y_dim]
@@ -111,13 +109,13 @@ class ConditionalNPF(UnivariateNPF):
     # Likelihood
 
     def log_likelihood(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[C],
-        mask_tar: NDArray[T],
-    ) -> NDArray:
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[C],
+        mask_tar: Array[T],
+    ) -> Array:
         """
         Calculate log-likelihood.
 
@@ -126,11 +124,11 @@ class ConditionalNPF(UnivariateNPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
 
         Returns:
-            log_likelihood: NDArray
+            log_likelihood: Array
         """
 
         mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar)               # [..., target, y_dim] x 2
@@ -142,13 +140,13 @@ class ConditionalNPF(UnivariateNPF):
     # Loss
 
     def loss(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[C],
-        mask_tar: NDArray[T],
-    ) -> NDArray:
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[C],
+        mask_tar: Array[T],
+    ) -> Array:
         """
         Calculate loss.
 
@@ -157,8 +155,8 @@ class ConditionalNPF(UnivariateNPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
 
         Returns:
             loss      float
@@ -173,26 +171,32 @@ class LatentNPF(UnivariateNPF):
     Base class for latent NPF models
     """
 
+    loss_type: str = "vi"
+
     @property
     def is_latent_model(self) -> bool:
         return True
+
+    def __post_init__(self):
+        super().__post_init__()
+        if self.loss_type not in ["vi", "ml"]:
+            raise ValueError(f"Invalid loss_type: {self.loss_type}. loss_type must be either 'vi' or 'ml'.")
 
     # Static methods
 
     @staticmethod
     def _log_likelihood(
-        y:     NDArray[..., T, Y],
-        mu:    NDArray[..., L, T, Y],
-        sigma: NDArray[..., L, T, Y],
-    ) -> NDArray[..., T]:
+        y:     Array[..., T, Y],
+        mu:    Array[..., L, T, Y],
+        sigma: Array[..., L, T, Y],
+    ) -> Array[..., T]:
         """
         Calculate element-wise log-likelihood of Gaussian distribution.
 
         Args:
-            y_tar:          Array[batch, target, y_dim]
-            mu:             Array[batch, latent, target, y_dim]
-            sigma:          Array[batch, latent, target, y_dim]
-            mask_tar:       Array[batch, target]
+            y_tar: Array[batch, target, y_dim]
+            mu:    Array[batch, latent, target, y_dim]
+            sigma: Array[batch, latent, target, y_dim]
 
         Returns:
             log_likelihood: Array[batch, latent, target]
@@ -205,11 +209,11 @@ class LatentNPF(UnivariateNPF):
 
     @staticmethod
     def _kl_divergence(
-        z0_mu:    NDArray[...],
-        z0_sigma: NDArray[...],
-        z1_mu:    NDArray[...],
-        z1_sigma: NDArray[...],
-    ) -> NDArray[...]:
+        z0_mu:    Array[...],
+        z0_sigma: Array[...],
+        z1_mu:    Array[...],
+        z1_sigma: Array[...],
+    ) -> Array[...]:
         """
         Calculate element-wise KL divergence between two Gaussian distributions.
 
@@ -220,7 +224,7 @@ class LatentNPF(UnivariateNPF):
             z1_sigma: Array[...]
 
         Returns:
-            kl_divergence:   Array[...]
+            kl_divergence: Array[...]
         """
 
         kl_div = jnp.log(z1_sigma) - jnp.log(z0_sigma) \
@@ -232,21 +236,21 @@ class LatentNPF(UnivariateNPF):
 
     @abstractmethod
     def __call__(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        mask_ctx: NDArray[C],
-        mask_tar: NDArray[T],
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        mask_ctx: Array[C],
+        mask_tar: Array[T],
         num_latents: int = 1,
-    ) -> Tuple[NDArray[B, L, T, Y], NDArray[B, L, T, Y]]:
+    ) -> Tuple[Array[B, L, T, Y], Array[B, L, T, Y]]:
         """
         Args:
             x_ctx:    Array[batch, context, x_dim]
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
-            num_latents:  int
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
+            num_latents: int
 
         Returns:
             mu:       Array[batch, latent, target, y_dim]
@@ -256,14 +260,14 @@ class LatentNPF(UnivariateNPF):
     # Likelihood
 
     def log_likelihood(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[C],
-        mask_tar: NDArray[T],
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[C],
+        mask_tar: Array[T],
         num_latents: int = 1,
-    ) -> NDArray:
+    ) -> Array:
         """
         Calculate log-likelihood.
 
@@ -272,8 +276,8 @@ class LatentNPF(UnivariateNPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
             num_latents: int
 
         Returns:
@@ -282,7 +286,7 @@ class LatentNPF(UnivariateNPF):
 
         mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_latents)  # [batch, latent, target, y_dim] x 2
 
-        log_likelihood = self._log_likelihood(y_tar, mu, sigma, mask_tar)       # [batch, latent, target]
+        log_likelihood = self._log_likelihood(y_tar, mu, sigma)                 # [batch, latent, target]
         log_likelihood = F.masked_mean(log_likelihood, mask_tar, axis=-1)       # [batch, latent]
         log_likelihood = jax.nn.logsumexp(log_likelihood, axis=-1) \
                        - math.log(num_latents)                                  # [batch]
@@ -293,15 +297,14 @@ class LatentNPF(UnivariateNPF):
     # Losses
 
     def loss(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[C],
-        mask_tar: NDArray[T],
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[C],
+        mask_tar: Array[T],
         num_latents: int = 1,
-        loss_type:   str = "vi",
-    ) -> NDArray:
+    ) -> Array:
         """
         Calculate loss.
 
@@ -310,32 +313,28 @@ class LatentNPF(UnivariateNPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
             num_latents: int
-            loss_type:   str ("vi" or "ml")
 
         Returns:
             loss: float
         """
-        if loss_type == "vi":
+        if self.loss_type == "vi":
             return self.vi_loss(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents)
-        elif loss_type == "ml":
+        elif self.loss_type == "ml":
             return self.ml_loss(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents)
-        else:
-            raise ValueError(f"Unknown loss type: {loss_type}. Loss type should be either 'vi' or 'ml'.")
-
 
     @abstractmethod
     def vi_loss(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[C],
-        mask_tar: NDArray[T],
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[C],
+        mask_tar: Array[T],
         num_latents: int = 1,
-    ) -> NDArray:
+    ) -> Array:
         """
         Calculate VI loss.
 
@@ -344,8 +343,8 @@ class LatentNPF(UnivariateNPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar:  Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
             num_latents: int
 
         Returns:
@@ -354,14 +353,14 @@ class LatentNPF(UnivariateNPF):
         raise NotImplementedError
 
     def ml_loss(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[C],
-        mask_tar: NDArray[T],
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[C],
+        mask_tar: Array[T],
         num_latents: int = 1,
-    ) -> NDArray:
+    ) -> Array:
         """
         Calculate Maximum-Likelihood loss.
 
@@ -370,8 +369,8 @@ class LatentNPF(UnivariateNPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
             num_latents: int
 
         Returns:
@@ -399,19 +398,17 @@ class MultivariateNPF(NPF):
 
     @staticmethod
     def _univariate_log_likelihood(
-        y_tar:    NDArray[B, T, Y],
-        mu:       NDArray[B, T, Y],
-        sigma:    NDArray[B, T, Y],
-        mask_tar: NDArray[B, T],
-    ) -> NDArray[B, T]:
+        y_tar:    Array[B, T, Y],
+        mu:       Array[B, T, Y],
+        sigma:    Array[B, T, Y],
+    ) -> Array[B, T]:
         """
         Calculate element-wise log-likelihood of univariate Gaussian distribution.
 
         Args:
-            y_tar:       Array[batch, target, y_dim]
-            mu:          Array[batch, target, y_dim]
-            sigma:       Array[batch, target, y_dim]
-            mask_tar:    Array[batch, target]
+            y_tar:    Array[batch, target, y_dim]
+            mu:       Array[batch, target, y_dim]
+            sigma:    Array[batch, target, y_dim]
 
         Returns:
             log_likelihood: Array[batch, target]
@@ -425,11 +422,11 @@ class MultivariateNPF(NPF):
 
     @staticmethod
     def _multivariate_log_likelihood(
-        y_tar:    NDArray[B, T, Y],
-        mu:       NDArray[B, Y, T],
-        cov:      NDArray[B, Y, T, T],
-        mask_tar: NDArray[B, T],
-    ) -> NDArray:   # TODO: Fix type annotation "NDArray[B]"
+        y_tar:    Array[B, T, Y],
+        mu:       Array[B, Y, T],
+        cov:      Array[B, Y, T, T],
+        mask_tar: Array[B, T],
+    ) -> Array:   # TODO: Fix type annotation "Array[B]"
         """
         Calculate batch-wise log-likelihood of multivariate Gaussian distribution.
 
@@ -456,23 +453,23 @@ class MultivariateNPF(NPF):
 
     @abstractmethod
     def __call__(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        mask_ctx: NDArray[B, C],
-        mask_tar: NDArray[B, T],
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        mask_ctx: Array[B, C],
+        mask_tar: Array[B, T],
         as_univariate: bool = False,
     ) -> Union[
-        Tuple[NDArray[B, Y, T], NDArray[B, Y, T, T]],
-        Tuple[NDArray[B, T, Y], NDArray[B, T, Y]],
+        Tuple[Array[B, Y, T], Array[B, Y, T, T]],
+        Tuple[Array[B, T, Y], Array[B, T, Y]],
     ]:
         """
         Args:
             x_ctx:    Array[batch, context, x_dim]
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
             as_univariate: bool
 
         Returns:
@@ -487,14 +484,14 @@ class MultivariateNPF(NPF):
     # Likelihoods
 
     def log_likelihood(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[B, C],
-        mask_tar: NDArray[B, T],
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[B, C],
+        mask_tar: Array[B, T],
         as_univariate: bool = False,
-    ) -> NDArray:
+    ) -> Array:
         """
         Calculate log-likelihood.
 
@@ -503,12 +500,12 @@ class MultivariateNPF(NPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
             as_univariate: bool
 
         Returns:
-            log_likelihood: NDArray
+            log_likelihood: Array
         """
 
         if as_univariate:
@@ -517,13 +514,13 @@ class MultivariateNPF(NPF):
             return self.multivariate_log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)
 
     def univariate_log_likelihood(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[B, C],
-        mask_tar: NDArray[B, T],
-    ) -> NDArray:
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[B, C],
+        mask_tar: Array[B, T],
+    ) -> Array:
         """
         Calculate univariate log-likelihood.
 
@@ -532,11 +529,11 @@ class MultivariateNPF(NPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
 
         Returns:
-            log_likelihood: NDArray
+            log_likelihood: Array
         """
 
 #         mu, sigma = self(x_ctx, y_ctx, x_tar, as_univariate=True)    # [batch, target, y_dim] * 2
@@ -546,13 +543,13 @@ class MultivariateNPF(NPF):
         raise NotImplementedError
 
     def multivariate_log_likelihood(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[B, C],
-        mask_tar: NDArray[B, T],
-    ) -> NDArray:
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[B, C],
+        mask_tar: Array[B, T],
+    ) -> Array:
         """
         Calculate multivariate log-likelihood.
 
@@ -561,11 +558,11 @@ class MultivariateNPF(NPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
 
         Returns:
-            log_likelihood: NDArray
+            log_likelihood: Array
         """
 
 #         mu, cov = self(x_ctx, y_ctx, x_tar, as_univariate=False)     # [batch, y_dim, target], [batch, y_dim, target, target]
@@ -577,14 +574,14 @@ class MultivariateNPF(NPF):
     # Losses
 
     def loss(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[B, C],
-        mask_tar: NDArray[B, T],
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[B, C],
+        mask_tar: Array[B, T],
         as_univariate: bool = False,
-    ) -> NDArray:
+    ) -> Array:
         """
         Calculate loss.
 
@@ -593,12 +590,12 @@ class MultivariateNPF(NPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
             as_univariate: bool
 
         Returns:
-            loss: NDArray
+            loss: Array
         """
 
         if as_univariate:
@@ -607,13 +604,13 @@ class MultivariateNPF(NPF):
             return self.multivariate_loss(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)
 
     def univariate_loss(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[B, C],
-        mask_tar: NDArray[B, T],
-    ) -> NDArray:
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[B, C],
+        mask_tar: Array[B, T],
+    ) -> Array:
         """
         Calculate univariate loss.
 
@@ -622,24 +619,24 @@ class MultivariateNPF(NPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
 
         Returns:
-            loss: NDArray
+            loss: Array
         """
 
         loss = -self.univariate_log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)
         return loss
 
     def multivariate_loss(self,
-        x_ctx:    NDArray[B, C, X],
-        y_ctx:    NDArray[B, C, Y],
-        x_tar:    NDArray[B, T, X],
-        y_tar:    NDArray[B, T, Y],
-        mask_ctx: NDArray[B, C],
-        mask_tar: NDArray[B, T],
-    ) -> NDArray:
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        x_tar:    Array[B, T, X],
+        y_tar:    Array[B, T, Y],
+        mask_ctx: Array[B, C],
+        mask_tar: Array[B, T],
+    ) -> Array:
         """
         Calculate multivariate loss.
 
@@ -648,11 +645,11 @@ class MultivariateNPF(NPF):
             y_ctx:    Array[batch, context, y_dim]
             x_tar:    Array[batch,  target, x_dim]
             y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[batch, context]
-            mask_tar: Array[batch,  target]
+            mask_ctx: Array[context]
+            mask_tar: Array[target]
 
         Returns:
-            loss: NDArray
+            loss: Array
         """
 
         loss = -self.multivariate_log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)
