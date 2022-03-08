@@ -57,23 +57,17 @@ def sample_with_replacement(
         return sampled_items
 
 
-class BNPMeta:
-    def __class_getitem__(cls, item: str):
-        if item == "CNPBase":
-            return CNPBase
-        elif item == "AttnCNPBase":
-            return AttnCNPBase
-        else:
-            raise ValueError(f"Unknown class: {item}")
-
-    def _predict(self,
+class BNPMixin(nn.Module):
+    @nn.compact
+    def __call__(self,
         x_ctx:    Array[B, C, X],
         y_ctx:    Array[B, C, Y],
         x_tar:    Array[B, T, X],
         mask_ctx: Array[C],
         mask_tar: Array[T],
         num_samples: int = 1,
-    ) -> Tuple[Array[B, S, T, Y], Array[B, S, T, Y], Array[B, T, R]]:
+        _return_aux: bool = False,
+    ) -> Tuple[Array[B, S, T, Y], Array[B, S, T, Y]]:
 
         # Bootstrapping
         key = self.make_rng("sample")
@@ -111,20 +105,10 @@ class BNPMeta:
 
         mu, sigma = self._decode(query, mask_tar)
 
-        return mu, sigma, r_ctx
-
-    @nn.compact
-    def __call__(self,
-        x_ctx:    Array[B, C, X],
-        y_ctx:    Array[B, C, Y],
-        x_tar:    Array[B, T, X],
-        mask_ctx: Array[C],
-        mask_tar: Array[T],
-        num_samples: int = 1,
-    ) -> Tuple[Array[B, S, T, Y], Array[B, S, T, Y]]:
-
-        mu, sigma, _ = self._predict(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples)
-        return mu, sigma
+        if _return_aux:
+            return mu, sigma, r_ctx
+        else:
+            return mu, sigma
 
     # Likelihood
 
@@ -153,7 +137,8 @@ class BNPMeta:
             log_likelihood: float
         """
 
-        mu, sigma, r_ctx = self._predict(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples)  # [batch, target, y_dim] x 2, [batch, target, r_dim]
+        mu, sigma, r_ctx = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples, _return_aux=True)
+                                                                                # [batch, target, y_dim] x 2, [batch, target, r_dim]
         base_query = jnp.concatenate((x_tar, r_ctx), axis=-1)                   # [batch, target, x_dim + r_dim]
         mu_base, sigma_base = self._decode(base_query, mask_tar)                # [batch, target, y_dim] x 2
 
@@ -170,36 +155,8 @@ class BNPMeta:
         log_likelihood = ll + ll_base
         return log_likelihood
 
-    def loss(self,
-        x_ctx:    Array[B, C, X],
-        y_ctx:    Array[B, C, Y],
-        x_tar:    Array[B, T, X],
-        y_tar:    Array[B, T, Y],
-        mask_ctx: Array[C],
-        mask_tar: Array[T],
-        num_samples: int = 1,
-    ) -> Array:
-        """
-        Calculate loss.
 
-        Args:
-            x_ctx:    Array[batch, context, x_dim]
-            y_ctx:    Array[batch, context, y_dim]
-            x_tar:    Array[batch,  target, x_dim]
-            y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[context]
-            mask_tar: Array[target]
-            num_samples: int
-
-        Returns:
-            loss: float
-        """
-
-        loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_samples=num_samples)
-        return loss
-
-
-class BNPBase(BNPMeta["CNPBase"]):
+class BNPBase(BNPMixin, CNPBase):
     f"""
     Base class of Bootstrapping Neural Process
 
@@ -209,7 +166,7 @@ class BNPBase(BNPMeta["CNPBase"]):
     """
 
 
-class BANPBase(BNPMeta["AttnCNPBase"]):
+class BANPBase(BNPMixin, AttnCNPBase):
     f"""
     Base class of Bootstrapping Attentive Neural Process
 

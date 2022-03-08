@@ -90,6 +90,7 @@ class ConditionalNPF(UnivariateNPF):
         x_tar:    Array[B, T, X],
         mask_ctx: Array[C],
         mask_tar: Array[T],
+        **kwargs,
     ) -> Tuple[Array[B, ..., T, Y], Array[B, ..., T, Y]]:
         """
         Args:
@@ -115,6 +116,7 @@ class ConditionalNPF(UnivariateNPF):
         y_tar:    Array[B, T, Y],
         mask_ctx: Array[C],
         mask_tar: Array[T],
+        **kwargs,
     ) -> Array:
         """
         Calculate log-likelihood.
@@ -131,7 +133,7 @@ class ConditionalNPF(UnivariateNPF):
             log_likelihood: Array
         """
 
-        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar)               # [..., target, y_dim] x 2
+        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, **kwargs)     # [..., target, y_dim] x 2
         _log_likelihood = self._log_likelihood(y_tar, mu, sigma)                # [..., target]
         _log_likelihood = F.masked_mean(_log_likelihood, mask_tar, axis=-1)     # [...]
         log_likelihood = jnp.mean(_log_likelihood)                              # [1]
@@ -146,6 +148,7 @@ class ConditionalNPF(UnivariateNPF):
         y_tar:    Array[B, T, Y],
         mask_ctx: Array[C],
         mask_tar: Array[T],
+        **kwargs,
     ) -> Array:
         """
         Calculate loss.
@@ -162,7 +165,7 @@ class ConditionalNPF(UnivariateNPF):
             loss      float
         """
 
-        loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)
+        loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, **kwargs)
         return loss
 
 
@@ -242,6 +245,7 @@ class LatentNPF(UnivariateNPF):
         mask_ctx: Array[C],
         mask_tar: Array[T],
         num_latents: int = 1,
+        **kwargs,
     ) -> Tuple[Array[B, L, T, Y], Array[B, L, T, Y]]:
         """
         Args:
@@ -267,6 +271,7 @@ class LatentNPF(UnivariateNPF):
         mask_ctx: Array[C],
         mask_tar: Array[T],
         num_latents: int = 1,
+        **kwargs,
     ) -> Array:
         """
         Calculate log-likelihood.
@@ -284,7 +289,7 @@ class LatentNPF(UnivariateNPF):
             log_likelihood: float
         """
 
-        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_latents)  # [batch, latent, target, y_dim] x 2
+        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_latents, **kwargs)  # [batch, latent, target, y_dim] x 2
 
         log_likelihood = self._log_likelihood(y_tar, mu, sigma)                 # [batch, latent, target]
         log_likelihood = F.masked_mean(log_likelihood, mask_tar, axis=-1)       # [batch, latent]
@@ -304,6 +309,7 @@ class LatentNPF(UnivariateNPF):
         mask_ctx: Array[C],
         mask_tar: Array[T],
         num_latents: int = 1,
+        **kwargs,
     ) -> Array:
         """
         Calculate loss.
@@ -321,9 +327,9 @@ class LatentNPF(UnivariateNPF):
             loss: float
         """
         if self.loss_type == "vi":
-            return self.vi_loss(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents)
+            return self.vi_loss(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents, **kwargs)
         elif self.loss_type == "ml":
-            return self.ml_loss(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents)
+            return self.ml_loss(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents, **kwargs)
 
     @abstractmethod
     def vi_loss(self,
@@ -334,6 +340,7 @@ class LatentNPF(UnivariateNPF):
         mask_ctx: Array[C],
         mask_tar: Array[T],
         num_latents: int = 1,
+        **kwargs,
     ) -> Array:
         """
         Calculate VI loss.
@@ -360,6 +367,7 @@ class LatentNPF(UnivariateNPF):
         mask_ctx: Array[C],
         mask_tar: Array[T],
         num_latents: int = 1,
+        **kwargs,
     ) -> Array:
         """
         Calculate Maximum-Likelihood loss.
@@ -377,7 +385,7 @@ class LatentNPF(UnivariateNPF):
             loss: float
         """
 
-        loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents)
+        loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents, **kwargs)
         return loss
 
 

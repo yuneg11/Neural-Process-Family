@@ -68,7 +68,7 @@ class ConvNPBase(LatentNPF):
         x_tar:    Array[B, T, X],
         mask_ctx: Array[C],
         mask_tar: Array[T],
-        num_latents:  int = 1,
+        num_latents: int = 1,
     ) -> Tuple[Array[B, L, T, Y], Array[B, L, T, Y], Array[B, D, Z], Array[B, D, Z], Array[1, D, X]]:
 
         # Discretize
@@ -110,7 +110,7 @@ class ConvNPBase(LatentNPF):
         x_tar:    Array[B, T, X],
         mask_ctx: Array[C],
         mask_tar: Array[T],
-        num_latents:  int = 1,
+        num_latents: int = 1,
     ) -> Tuple[Array[B, L, T, Y], Array[B, L, T, Y]]:
 
         mu, sigma, _, _, _ = self._predict(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_latents)
@@ -199,8 +199,8 @@ class ConvNP(ConvNPBase):
         return ConvNPBase(
             discretizer = discretizer,
             encoder     = SetConv1dEncoder(init_log_scale=init_log_scale),
-            determ_cnn  = DetermNet(hidden_features=determ_cnn_dims, out_features=(z_dim * 2)),
-            latent_cnn  = LatentNet(hidden_features=latent_cnn_dims, out_features=(y_dim * 2)),
+            determ_cnn  = DetermNet(dimension=1, hidden_features=determ_cnn_dims, out_features=(z_dim * 2)),
+            latent_cnn  = LatentNet(dimension=1, hidden_features=latent_cnn_dims, out_features=(y_dim * 2)),
             decoder     = SetConv1dDecoder(init_log_scale=init_log_scale),
             loss_type   = loss_type,
         )

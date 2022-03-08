@@ -72,6 +72,7 @@ class ConvCNPBase(ConditionalNPF):
         return mu, sigma
 
 
+#! TODO: Add 2d model
 class ConvCNP(ConvCNPBase):
     """
     Convolutional Conditional Neural Process
@@ -109,6 +110,6 @@ class ConvCNP(ConvCNPBase):
         return ConvCNPBase(
             discretizer = discretizer,
             encoder     = SetConv1dEncoder(init_log_scale=init_log_scale),
-            cnn         = Net(hidden_features=cnn_dims, out_features=(y_dim * 2)),
+            cnn         = Net(dimension=1, hidden_features=cnn_dims, out_features=(y_dim * 2)),
             decoder     = SetConv1dDecoder(init_log_scale=init_log_scale),
         )
