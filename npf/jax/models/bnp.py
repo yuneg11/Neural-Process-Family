@@ -20,9 +20,9 @@ from ..modules import (
 
 __all__ = [
     "BNPBase",
-    "BANPBase",
+    "AttnBNPBase",
     "BNP",
-    "BANP",
+    "AttnBNP",
 ]
 
 
@@ -142,8 +142,8 @@ class BNPMixin(nn.Module):
         base_query = jnp.concatenate((x_tar, r_ctx), axis=-1)                   # [batch, target, x_dim + r_dim]
         mu_base, sigma_base = self._decode(base_query, mask_tar)                # [batch, target, y_dim] x 2
 
-        _y_tar = jnp.expand_dims(y_tar, axis=-3)                                # [..., 1, target, y_dim]
-        ll = self._log_likelihood(_y_tar, mu, sigma)                            # [batch, sample, target]
+        s_y_tar = jnp.expand_dims(y_tar, axis=-3)                               # [..., 1, target, y_dim]
+        ll = self._log_likelihood(s_y_tar, mu, sigma)                           # [batch, sample, target]
         ll = jax.nn.logsumexp(ll, axis=-2) - math.log(num_samples)              # [batch, target]
         ll = F.masked_mean(ll, mask_tar, axis=-1)                               # [batch]
         ll = jnp.mean(ll)                                                       # [1]
@@ -166,9 +166,9 @@ class BNPBase(BNPMixin, CNPBase):
     """
 
 
-class BANPBase(BNPMixin, AttnCNPBase):
+class AttnBNPBase(BNPMixin, AttnCNPBase):
     f"""
-    Base class of Bootstrapping Attentive Neural Process
+    Base class of Attentive Bootstrapping Neural Process
 
     Args:
         encoder: [batch, ctx, x_dim + y_dim] -> [batch, ctx, r_dim]
@@ -194,7 +194,7 @@ class BNP:
         )
 
 
-class BANP:
+class AttnBNP:
     """
     Bootstrapping Attentive Neural Process
     """
@@ -218,7 +218,7 @@ class BANP:
         cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=ca_heads)
         decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
 
-        return BANPBase(
+        return AttnBNPBase(
             encoder=encoder,
             self_attention=self_attention,
             cross_attention=cross_attention,

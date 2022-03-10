@@ -40,12 +40,10 @@ class AttnCNPBase(CNPBase):
             raise ValueError("cross_attention is not specified")
 
     def _encode(self,
-        x:    Array[..., P, X],
-        y:    Array[..., P, Y],
+        ctx:  Array[..., P, V],
         mask: Array[P],
     ) -> Array[..., P, R]:
 
-        ctx = jnp.concatenate((x, y), axis=-1)                                  # [..., point, x_dim + y_dim]
         r_i = self.encoder(ctx)                                                 # [..., point, r_dim]
 
         if self.self_attention is not None:

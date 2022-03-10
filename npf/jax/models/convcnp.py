@@ -35,6 +35,7 @@ class ConvCNPBase(ConditionalNPF):
     encoder:     nn.Module = None
     cnn:         nn.Module = None
     decoder:     nn.Module = None
+    min_sigma:   float     = 0.1
 
     def __post_init__(self):
         super().__post_init__()
@@ -61,7 +62,7 @@ class ConvCNPBase(ConditionalNPF):
         # Convolution
         mu_log_sigma_grid = self.cnn(h)                                         # [batch, discrete, y_dim x 2]
         mu_grid, log_sigma_grid = jnp.split(mu_log_sigma_grid, 2, axis=-1)      # [batch, discrete, y_dim] x 2
-        sigma_grid = nn.softplus(log_sigma_grid)                                # [batch, discrete, y_dim]
+        sigma_grid = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma_grid)  # [batch, discrete, y_dim]
 
         # Decode
         mu    = self.decoder(x_tar, x_grid, mu_grid,    mask_grid)              # [batch, target, y_dim]
@@ -73,7 +74,7 @@ class ConvCNPBase(ConditionalNPF):
 
 
 #! TODO: Add 2d model
-class ConvCNP(ConvCNPBase):
+class ConvCNP:
     """
     Convolutional Conditional Neural Process
     """

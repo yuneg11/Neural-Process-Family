@@ -36,13 +36,11 @@ class CNPBase(ConditionalNPF):
             raise ValueError("decoder is not specified")
 
     def _encode(self,
-        x:    Array[..., P, X],
-        y:    Array[..., P, Y],
+        ctx:  Array[..., P, V],
         mask: Array[P],
     ) -> Array[..., P, R]:
 
-        xy = jnp.concatenate((x, y), axis=-1)                                   # [..., point, x_dim + y_dim]
-        r_i = self.encoder(xy)                                                  # [..., point, r_dim]
+        r_i = self.encoder(ctx)                                                 # [..., point, r_dim]
         return r_i
 
     def _aggregate(self,
@@ -78,7 +76,8 @@ class CNPBase(ConditionalNPF):
         mask_tar: Array[T],
     ) -> Tuple[Array[B, T, Y], Array[B, T, Y]]:
 
-        r_i_ctx = self._encode(x_ctx, y_ctx, mask_ctx)                          # [batch, context, r_dim]
+        ctx = jnp.concatenate((x_ctx, y_ctx), axis=-1)                          # [..., point, x_dim + y_dim]
+        r_i_ctx = self._encode(ctx, mask_ctx)                                   # [batch, context, r_dim]
         r_ctx = self._aggregate(r_i_ctx, x_ctx, x_tar, mask_ctx)                # [batch, target, r_dim]
         query = jnp.concatenate((x_tar, r_ctx), axis=-1)                        # [batch, target, x_dim + r_dim]
         mu, sigma = self._decode(query, mask_tar)                               # [batch, target, y_dim] x 2

@@ -92,7 +92,7 @@ class SetConvBase(nn.Module):
     ) -> Array[B, N, M]:
 
         if a.shape[-1] == 1 and b.shape[-1] == 1:
-            distance = jnp.square(a - jnp.swapaxes(b, 1, 2))
+            distance = jnp.square(a - jnp.swapaxes(b, -1, -2))
         else:
             a_norm = jnp.expand_dims(jnp.sum(jnp.square(a), axis=-1), axis=-1)  # [batch, n, 1]
             b_norm = jnp.expand_dims(jnp.sum(jnp.square(b), axis=-1), axis=-2)  # [batch, 1, m]
@@ -144,7 +144,7 @@ class SetConv1dDecoder(SetConvBase):
         weight = self._get_weight(query, key)                                   # [batch, target, source]
         weight = F.apply_mask(weight, mask, axis=-1)                            # [batch, target, source]
 
-        if value.ndim == 4:
+        if value.ndim == 4 and query.ndim == 3:
             weight = jnp.expand_dims(weight, axis=-3)                           # [batch, 1, target, source]
         value = jnp.matmul(weight, value)                                       # [batch, (latent,) target, v_dim]
 
@@ -172,7 +172,7 @@ class SetConv2dEncoder(SetConvBase):
         density_value = jnp.matmul(density_value, weight)                       # [batch, v_dim + 1, target, target]
         density_value = jnp.transpose(density_value, axes=(0, 2, 3, 1))         # [batch, target, target, v_dim + 1]
         density, value = jnp.split(density_value, (1,), axis=-1)                # [batch, target, target, 1], [batch, target, target, v_dim]
-        value = jnp.concatenate((density, value / (density + 1e-8)), axis=-3)   # [batch, target, target, v_dim + 1]
+        value = jnp.concatenate((density, value / (density + 1e-8)), axis=-1)   # [batch, target, target, v_dim + 1]
 
         identity = np.expand_dims(np.eye(query.shape[-2]), axis=(-4, -1))       # [1, target, target, 1]
         identity = np.repeat(identity, value.shape[-4], axis=-4)                # [batch, target, target, 1]
