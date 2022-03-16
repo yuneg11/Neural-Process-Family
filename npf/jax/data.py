@@ -1,5 +1,8 @@
 import math
-from dataclasses import dataclass
+from functools import partial
+from collections import namedtuple
+
+import numpy as np
 
 import jax
 import jax.numpy as jnp
@@ -18,17 +21,17 @@ __all__ = [
 ]
 
 
-@dataclass
-class GPData:
-    x: jnp.ndarray
-    y: jnp.ndarray
-    x_ctx: jnp.ndarray
-    x_tar: jnp.ndarray
-    y_ctx: jnp.ndarray
-    y_tar: jnp.ndarray
-    mask:     jnp.ndarray
-    mask_ctx: jnp.ndarray
-    mask_tar: jnp.ndarray
+GPData = namedtuple("GPData", (
+    "x",
+    "y",
+    "x_ctx",
+    "x_tar",
+    "y_ctx",
+    "y_tar",
+    "mask",
+    "mask_ctx",
+    "mask_tar",
+))
 
 
 class GPPriorSampler:
@@ -59,31 +62,40 @@ class GPSampler:
         self.kernel = kernel
         self.t_noise = t_noise
 
+    @partial(jax.jit, static_argnames=("self", "batch_size", "num_ctx", "num_tar", "max_num_points", "x_range"))
     def sample(self, key, batch_size=16, num_ctx=None, num_tar=None, max_num_points=50, x_range=(-2, 2)):
         keys = random.split(key, 6)
         shape = (batch_size, max_num_points, 1)
 
-        num_ctx = int(num_ctx or (randint(keys[0], shape=[1], minval=3, maxval=max_num_points - 3))[0])
-        num_tar = int(num_tar or (randint(keys[1], shape=[1], minval=3, maxval=max_num_points - num_ctx))[0])
+        if num_ctx is None:
+            num_ctx = random.randint(keys[0], shape=(batch_size,), minval=3, maxval=max_num_points - 2)
+        else:
+            num_ctx = np.full(shape=(batch_size,), fill_value=num_ctx)
+
+        if num_tar is None:
+            num_tar = random.randint(keys[1], shape=(batch_size,), minval=3, maxval=max_num_points - num_ctx + 1)
+        else:
+            num_tar = np.full(shape=(batch_size,), fill_value=num_tar)
+
         num_points = num_ctx + num_tar
 
-        mask     = jnp.repeat(jnp.expand_dims(F.get_mask(max_num_points, start=0,       stop=num_points), axis=0), batch_size, axis=0)
-        mask_ctx = jnp.repeat(jnp.expand_dims(F.get_mask(max_num_points, start=0,       stop=num_ctx),    axis=0), batch_size, axis=0)
-        mask_tar = jnp.repeat(jnp.expand_dims(F.get_mask(max_num_points, start=num_ctx, stop=num_points), axis=0), batch_size, axis=0)
+        mask     = jax.vmap(lambda _p:     F.get_mask(max_num_points, start=0,  stop=_p))(num_points)
+        mask_ctx = jax.vmap(lambda _c:     F.get_mask(max_num_points, start=0,  stop=_c))(num_ctx)
+        mask_tar = jax.vmap(lambda _c, _p: F.get_mask(max_num_points, start=_c, stop=_p))(num_ctx, num_points)
 
         x = x_range[0] + (x_range[1] - x_range[0]) * uniform(keys[2], shape=shape)
 
-        mean = jnp.zeros(shape).squeeze(axis=2)
+        mean = jnp.zeros(shape[:-1])
         cov = self.kernel(keys[3], x)
 
-        y = multivariate_normal(keys[4], mean, cov).reshape(shape)
+        y = random.multivariate_normal(keys[4], mean, cov).reshape(shape)
 
         if self.t_noise is not None:
             if self.t_noise == -1:
-                t_noise = 0.15 * uniform(keys[5], shape=y.shape)
+                t_noise = 0.15 * random.uniform(keys[5], shape=y.shape)
             else:
                 t_noise = self.t_noise
-            y += t_noise * t(keys[6], shape=y.shape)
+            y += t_noise * random.t(keys[6], shape=y.shape)
 
         batch = GPData(
             x     = F.apply_mask(x, mask,     mask_axis=(0, -2), fill_value=0),

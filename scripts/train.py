@@ -98,12 +98,9 @@ def main(args, output_dir):
         kwargs = {}
     elif args.model.lower() == "NP".lower():
         args.model = "NP"
-        model = NP(y_dim=1)
+        model = NP(y_dim=1, loss_type=args.loss_type if args.loss_type else "vi")
         state = init_model(key, model, **init_data)
-        kwargs = dict(
-            num_latents=args.num_latents,
-            loss_type=args.loss_type if args.loss_type else "vi",
-        )
+        kwargs = dict(num_latents=args.num_latents)
     elif args.model.lower() == "AttnCNP".lower():
         args.model = "AttnCNP"
         model = AttnCNP(y_dim=1)
@@ -164,7 +161,9 @@ def main(args, output_dir):
     train_step = get_train_step(model, **kwargs)
     eval_step  = get_eval_step(model, **kwargs)
 
-    for i in trange(1, args.num_steps + 1, desc="Train", ncols=80):
+    eval_batch = eval_sampler.sample(jax.random.PRNGKey(19), batch_size=10000)
+
+    for i in trange(1, args.num_steps + 1, desc=args.model, ncols=80):
         key, model_key, data_key = jax.random.split(key, 3)
         batch = sampler.sample(data_key, batch_size=256)
         state, _ = train_step(
@@ -174,28 +173,30 @@ def main(args, output_dir):
         )
 
         if i % args.eval_every == 0:
-            batch = eval_sampler.sample(data_key, batch_size=3000)
             ll_ctx = eval_step(
                 state, dict(sample=model_key),
-                x_ctx=batch.x_ctx, y_ctx=batch.y_ctx, x_tar=batch.x_ctx, y_tar=batch.y_ctx,
-                mask_ctx=batch.mask_ctx, mask_tar=batch.mask_ctx,
+                x_ctx=eval_batch.x_ctx, y_ctx=eval_batch.y_ctx,
+                x_tar=eval_batch.x_ctx, y_tar=eval_batch.y_ctx,
+                mask_ctx=eval_batch.mask_ctx, mask_tar=eval_batch.mask_ctx,
             )
             ll_tar = eval_step(
                 state, dict(sample=model_key),
-                x_ctx=batch.x_ctx, y_ctx=batch.y_ctx, x_tar=batch.x_tar, y_tar=batch.y_tar,
-                mask_ctx=batch.mask_ctx, mask_tar=batch.mask_tar,
+                x_ctx=eval_batch.x_ctx, y_ctx=eval_batch.y_ctx,
+                x_tar=eval_batch.x_tar, y_tar=eval_batch.y_tar,
+                mask_ctx=eval_batch.mask_ctx, mask_tar=eval_batch.mask_tar,
             )
             ll = eval_step(
                 state, dict(sample=model_key),
-                x_ctx=batch.x_ctx, y_ctx=batch.y_ctx, x_tar=batch.x, y_tar=batch.y,
-                mask_ctx=batch.mask_ctx, mask_tar=batch.mask,
+                x_ctx=eval_batch.x_ctx, y_ctx=eval_batch.y_ctx,
+                x_tar=eval_batch.x, y_tar=eval_batch.y,
+                mask_ctx=eval_batch.mask_ctx, mask_tar=eval_batch.mask,
             )
             logger.info(
                 f"Step {i:5d} / {args.num_steps}   CTX LL: {ll_ctx:8.4f}   TAR LL: {ll_tar:8.4f}   LL: {ll:8.4f}"
             )
 
         if i % args.save_every == 0:
-            checkpoints.save_checkpoint(output_dir, state, i, keep=3)
+            checkpoints.save_checkpoint(output_dir, state, i, keep=1)
 
 
 if __name__ == "__main__":

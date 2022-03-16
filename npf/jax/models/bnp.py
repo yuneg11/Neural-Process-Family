@@ -185,7 +185,7 @@ class BNPMixin(nn.Module):
         mu_base, sigma_base = self._decode(base_query, _mask_tar)                                   # [batch, target, y_dim] x 2
 
         ll_base = self._log_likelihood(_y_tar, mu_base, sigma_base)                                 # [batch, target]
-        ll_base = F.masked_mean(ll_base, _mask_tar)                                                 # [batch]
+        ll_base = F.masked_mean(ll_base, _mask_tar)                                                 # [1]
 
         loss = -(ll + ll_base)
         return loss
