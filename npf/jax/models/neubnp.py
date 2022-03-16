@@ -66,8 +66,6 @@ class NeuBNPBase(CNPBase):
         else:
             return mu, sigma
 
-    # Likelihood
-
     def log_likelihood(self,
         x_ctx:    Array[B, C, X],
         y_ctx:    Array[B, C, Y],
@@ -79,18 +77,6 @@ class NeuBNPBase(CNPBase):
     ) -> Array:
         """
         Calculate log-likelihood.
-
-        Args:
-            x_ctx:    Array[batch, context, x_dim]
-            y_ctx:    Array[batch, context, y_dim]
-            x_tar:    Array[batch,  target, x_dim]
-            y_tar:    Array[batch,  target, y_dim]
-            mask_ctx: Array[context]
-            mask_tar: Array[target]
-            num_samples: int
-
-        Returns:
-            log_likelihood: float
         """
 
         mu, sigma, w_ctx = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples, _return_aux=True)

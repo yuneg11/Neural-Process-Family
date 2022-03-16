@@ -45,8 +45,7 @@ class AttnNPBase(NPBase):
         mask_ctx: Array[C],
     ) -> Array[B, T, R]:
 
-        attn_mask_ctx = F.repeat_axis(mask_ctx, axis=0, repeats=x_tar.shape[0])
-        r_ctx = self.determ_cross_attention(x_tar, x_ctx, r_i_ctx, mask=attn_mask_ctx) # [batch, target, r_dim]
+        r_ctx = self.determ_cross_attention(x_tar, x_ctx, r_i_ctx, mask=mask_ctx)                   # [batch, target, r_dim]
         return r_ctx
 
     def _encode(self,
@@ -56,12 +55,11 @@ class AttnNPBase(NPBase):
         latent_only: bool = False,
     ) -> Union[Array[B, C, Z], Tuple[Array[B, C, Z], Array[B, C, R]]]:
 
-        xy = jnp.concatenate((x, y), axis=-1)                                   # [..., point, x_dim + y_dim]
+        xy = jnp.concatenate((x, y), axis=-1)                                                       # [..., point, x_dim + y_dim]
         _z_i = self.latent_encoder(xy)
 
-        attn_mask = F.repeat_axis(mask, axis=0, repeats=x.shape[0])             # [..., point]
         if self.latent_self_attention is not None:
-            z_i = self.latent_self_attention(_z_i, mask=attn_mask)
+            z_i = self.latent_self_attention(_z_i, mask=mask)
 
         if latent_only:
             return z_i
@@ -74,11 +72,11 @@ class AttnNPBase(NPBase):
                 elif self.determ_self_attention is self.determ_self_attention:
                     r_i = z_i
                 else:
-                    r_i = self.determ_self_attention(_z_i, mask=attn_mask)
+                    r_i = self.determ_self_attention(_z_i, mask=mask)
             else:
                 r_i = self.determ_encoder(xy)
                 if self.determ_self_attention is not None:
-                    r_i = self.determ_self_attention(r_i, mask=attn_mask)
+                    r_i = self.determ_self_attention(r_i, mask=mask)
 
             return z_i, r_i
 

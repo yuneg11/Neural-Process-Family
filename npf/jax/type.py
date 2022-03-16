@@ -48,5 +48,6 @@ V = TensorDim("value_dim")
 X = TensorDim("x_dim")
 Y = TensorDim("y_dim")
 Z = TensorDim("z_dim")
+G = TensorDim("generate number")
 
 QK = TensorDim("query_key_dim")

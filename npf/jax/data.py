@@ -67,9 +67,9 @@ class GPSampler:
         num_tar = int(num_tar or (randint(keys[1], shape=[1], minval=3, maxval=max_num_points - num_ctx))[0])
         num_points = num_ctx + num_tar
 
-        mask     = F.get_mask(max_num_points, start=0,       stop=num_points)
-        mask_ctx = F.get_mask(max_num_points, start=0,       stop=num_ctx)
-        mask_tar = F.get_mask(max_num_points, start=num_ctx, stop=num_points)
+        mask     = jnp.repeat(jnp.expand_dims(F.get_mask(max_num_points, start=0,       stop=num_points), axis=0), batch_size, axis=0)
+        mask_ctx = jnp.repeat(jnp.expand_dims(F.get_mask(max_num_points, start=0,       stop=num_ctx),    axis=0), batch_size, axis=0)
+        mask_tar = jnp.repeat(jnp.expand_dims(F.get_mask(max_num_points, start=num_ctx, stop=num_points), axis=0), batch_size, axis=0)
 
         x = x_range[0] + (x_range[1] - x_range[0]) * uniform(keys[2], shape=shape)
 
@@ -86,12 +86,12 @@ class GPSampler:
             y += t_noise * t(keys[6], shape=y.shape)
 
         batch = GPData(
-            x     = F.apply_mask(x, mask,     fill_value=0, axis=-2),
-            y     = F.apply_mask(y, mask,     fill_value=0, axis=-2),
-            x_ctx = F.apply_mask(x, mask_ctx, fill_value=0, axis=-2),
-            y_ctx = F.apply_mask(y, mask_ctx, fill_value=0, axis=-2),
-            x_tar = F.apply_mask(x, mask_tar, fill_value=0, axis=-2),
-            y_tar = F.apply_mask(y, mask_tar, fill_value=0, axis=-2),
+            x     = F.apply_mask(x, mask,     mask_axis=(0, -2), fill_value=0),
+            y     = F.apply_mask(y, mask,     mask_axis=(0, -2), fill_value=0),
+            x_ctx = F.apply_mask(x, mask_ctx, mask_axis=(0, -2), fill_value=0),
+            y_ctx = F.apply_mask(y, mask_ctx, mask_axis=(0, -2), fill_value=0),
+            x_tar = F.apply_mask(x, mask_tar, mask_axis=(0, -2), fill_value=0),
+            y_tar = F.apply_mask(y, mask_tar, mask_axis=(0, -2), fill_value=0),
             mask     = mask,
             mask_ctx = mask_ctx,
             mask_tar = mask_tar,

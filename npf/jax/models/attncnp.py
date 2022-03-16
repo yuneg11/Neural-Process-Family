@@ -1,10 +1,8 @@
 from ..type import *
 
-from jax import numpy as jnp
 from flax import linen as nn
 
 from .cnp import CNPBase
-from .. import functional as F
 from ..modules import (
     MLP,
     MultiheadAttention,
@@ -40,27 +38,23 @@ class AttnCNPBase(CNPBase):
             raise ValueError("cross_attention is not specified")
 
     def _encode(self,
-        ctx:  Array[..., P, V],
-        mask: Array[P],
-    ) -> Array[..., P, R]:
+        ctx:  Array[B, ..., P, V],
+        mask: Array[B, P],
+    ) -> Array[B, ..., P, R]:
 
-        r_i = self.encoder(ctx)                                                 # [..., point, r_dim]
-
+        r_i = self.encoder(ctx)                                                                     # [batch, ..., point, r_dim]
         if self.self_attention is not None:
-            attn_mask = F.repeat_axis(mask, axis=0, repeats=x.shape[0])         # [..., point]
-            r_i = self.self_attention(r_i, mask=attn_mask)
-
+            r_i = self.self_attention(r_i, mask=mask)
         return r_i
 
     def _aggregate(self,
-        r_i_ctx:  Array[..., C, R],
-        x_ctx:    Array[..., C, X],
-        x_tar:    Array[..., T, X],
-        mask_ctx: Array[C],
-    ) -> Array[..., T, R]:
+        r_i_ctx:  Array[B, ..., C, R],
+        x_ctx:    Array[B, ..., C, X],
+        x_tar:    Array[B, ..., T, X],
+        mask_ctx: Array[B, C],
+    ) -> Array[B, ..., T, R]:
 
-        attn_mask_ctx = F.repeat_axis(mask_ctx, axis=0, repeats=x_tar.shape[0])
-        r_ctx = self.cross_attention(x_tar, x_ctx, r_i_ctx, mask=attn_mask_ctx) # [batch, target, r_dim]
+        r_ctx = self.cross_attention(x_tar, x_ctx, r_i_ctx, mask=mask_ctx)                          # [batch, ..., target, r_dim]
         return r_ctx
 
 
