@@ -60,7 +60,7 @@ def sample(
         if new_axis:
             item = jnp.expand_dims(item, axis=-3)
         sampled_item = jnp.take_along_axis(item, indices=sampled_idx, axis=-2)
-        sampled_item = F.apply_mask(sampled_item, mask, mask_axis=(0, -2))
+        sampled_item = F.masked_fill(sampled_item, mask, mask_axis=(0, -2))
         sampled_items.append(sampled_item)
 
     if len(sampled_items) == 1:
@@ -135,12 +135,12 @@ class BNPMixin(nn.Module):
             return mu, sigma
 
     def log_likelihood(self,
-        x_ctx:    Array[B, C, X],
-        y_ctx:    Array[B, C, Y],
-        x_tar:    Array[B, T, X],
-        y_tar:    Array[B, T, Y],
-        mask_ctx: Array[B, C],
-        mask_tar: Array[B, T],
+        x_ctx:    Array[B, [C], X],
+        y_ctx:    Array[B, [C], Y],
+        x_tar:    Array[B, [T], X],
+        y_tar:    Array[B, [T], Y],
+        mask_ctx: Array[B, [C]],
+        mask_tar: Array[B, [T]],
         num_samples: int = 1,
     ) -> Array:
         """

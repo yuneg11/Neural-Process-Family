@@ -47,7 +47,7 @@ def sample_with_replacement(
         if new_axis:
             item = jnp.expand_dims(item, axis=-3)
         sampled_item = jnp.take_along_axis(item, indices=sampled_idx, axis=-2)
-        sampled_item = F.apply_mask(sampled_item, mask, axis=-2)
+        sampled_item = F.masked_fill(sampled_item, mask, axis=-2)
         sampled_items.append(sampled_item)
 
     if len(sampled_items) == 1:
@@ -80,8 +80,8 @@ class ConvBNPBase(ConvCNPBase):
         mu    = self.decoder(x_tar, x_grid, mu_grid,    mask_grid)              # [batch, target, y_dim]
         sigma = self.decoder(x_tar, x_grid, sigma_grid, mask_grid)              # [batch, target, y_dim]
 
-        mu    = F.apply_mask(mu,    mask_tar, axis=-2)                          # [batch, target, y_dim]
-        sigma = F.apply_mask(sigma, mask_tar, axis=-2)                          # [batch, target, y_dim]
+        mu    = F.masked_fill(mu,    mask_tar, axis=-2)                          # [batch, target, y_dim]
+        sigma = F.masked_fill(sigma, mask_tar, axis=-2)                          # [batch, target, y_dim]
         return mu, sigma
 
     @nn.compact
@@ -148,8 +148,8 @@ class ConvBNPBase(ConvCNPBase):
         mu    = self.decoder(x_tar, x_grid, mu_grid,    mask_grid)              # [batch, sample, target, y_dim]
         sigma = self.decoder(x_tar, x_grid, sigma_grid, mask_grid)              # [batch, sample, target, y_dim]
 
-        mu    = F.apply_mask(mu,    mask_tar, axis=-2)                          # [batch, sample, target, y_dim]
-        sigma = F.apply_mask(sigma, mask_tar, axis=-2)                          # [batch, sample, target, y_dim]
+        mu    = F.masked_fill(mu,    mask_tar, axis=-2)                          # [batch, sample, target, y_dim]
+        sigma = F.masked_fill(sigma, mask_tar, axis=-2)                          # [batch, sample, target, y_dim]
 
         if _return_aux:
             return mu, sigma, s_h_ctx, s_x_grid, mask_grid

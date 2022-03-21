@@ -60,8 +60,8 @@ class CNPBase(ConditionalNPF):
         mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, ..., target, y_dim] x 2
         sigma = 0.1 + 0.9 * nn.softplus(log_sigma)
 
-        mu    = F.apply_mask(mu,    mask_tar, mask_axis=(0, -2))                                    # [batch, ..., target, y_dim]
-        sigma = F.apply_mask(sigma, mask_tar, mask_axis=(0, -2))                                    # [batch, ..., target, y_dim]
+        mu    = F.masked_fill(mu,    mask_tar, mask_axis=(0, -2))                                    # [batch, ..., target, y_dim]
+        sigma = F.masked_fill(sigma, mask_tar, mask_axis=(0, -2))                                    # [batch, ..., target, y_dim]
         return mu, sigma
 
     @nn.compact

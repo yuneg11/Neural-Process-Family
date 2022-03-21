@@ -23,12 +23,6 @@ __all__ = ["ConvCNPBase", "ConvCNP"]
 class ConvCNPBase(ConditionalNPF):
     """
     Base class of Convolutional Conditional Neural Process
-
-    Args:
-        discretizer: [[batch, context, x_dim], [batch, target, x_dim]] -> [1, discrete, 1]
-        encoder:     [[batch, discrete, x_dim], [batch, context, x_dim], [batch, context, y_dim]] -> [batch, y_dim + 1, discrete]
-        cnn:         [batch, y_dim + 1, discrete] -> [batch, y_dim x 2, discrete]
-        decoder:     [[batch, target, x_dim], [batch, discrete, x_dim], [batch, y_dim, discrete]] -> [batch, target, y_dim]
     """
 
     discretizer: nn.Module = None
@@ -46,30 +40,30 @@ class ConvCNPBase(ConditionalNPF):
 
     @nn.compact
     def __call__(self,
-        x_ctx:    Array[B, C, X],
-        y_ctx:    Array[B, C, Y],
-        x_tar:    Array[B, T, X],
-        mask_ctx: Array[C],
-        mask_tar: Array[T],
-    ) -> Tuple[Array[B, T, Y], Array[B, T, Y]]:
+        x_ctx:    Array[B, [C], X],
+        y_ctx:    Array[B, [C], Y],
+        x_tar:    Array[B, [T], X],
+        mask_ctx: Array[B, [C]],
+        mask_tar: Array[B, [T]],
+    ) -> Tuple[Array[B, [T], Y], Array[B, [T], Y]]:
 
         # Discretize
-        x_grid, mask_grid = self.discretizer(x_ctx, x_tar, mask_ctx, mask_tar)  # [1, discrete, x_dim] (broadcastable to [batch, discrete, x_dim]), [discrete]
+        x_grid, mask_grid = self.discretizer(x_ctx, x_tar, mask_ctx, mask_tar)                      # [1, discrete, x_dim] (broadcastable to [batch, discrete, x_dim]), [discrete]
 
         # Encode
-        h = self.encoder(x_grid, x_ctx, y_ctx, mask_ctx)                        # [batch, discrete, y_dim + 1]
+        h = self.encoder(x_grid, x_ctx, y_ctx, mask_ctx)                                            # [batch, discrete, y_dim + 1]
 
         # Convolution
-        mu_log_sigma_grid = self.cnn(h)                                         # [batch, discrete, y_dim x 2]
-        mu_grid, log_sigma_grid = jnp.split(mu_log_sigma_grid, 2, axis=-1)      # [batch, discrete, y_dim] x 2
-        sigma_grid = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma_grid)  # [batch, discrete, y_dim]
+        mu_log_sigma_grid = self.cnn(h)                                                             # [batch, discrete, y_dim x 2]
+        mu_grid, log_sigma_grid = jnp.split(mu_log_sigma_grid, 2, axis=-1)                          # [batch, discrete, y_dim] x 2
+        sigma_grid = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma_grid)            # [batch, discrete, y_dim]
 
         # Decode
-        mu    = self.decoder(x_tar, x_grid, mu_grid,    mask_grid)              # [batch, target, y_dim]
-        sigma = self.decoder(x_tar, x_grid, sigma_grid, mask_grid)              # [batch, target, y_dim]
+        mu    = self.decoder(x_tar, x_grid, mu_grid,    mask_grid)                                  # [batch, target, y_dim]
+        sigma = self.decoder(x_tar, x_grid, sigma_grid, mask_grid)                                  # [batch, target, y_dim]
 
-        mu    = F.apply_mask(mu,    mask_tar, axis=-2)                          # [batch, target, y_dim]
-        sigma = F.apply_mask(sigma, mask_tar, axis=-2)                          # [batch, target, y_dim]
+        mu    = F.masked_fill(mu,    mask_tar, non_mask_axis=-1)                                    # [batch, target, y_dim]
+        sigma = F.masked_fill(sigma, mask_tar, non_mask_axis=-1)                                    # [batch, target, y_dim]
         return mu, sigma
 
 

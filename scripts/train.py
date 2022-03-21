@@ -2,13 +2,10 @@ import sys
 sys.path.append(".")
 
 import os
-import random
 import logging
-from datetime import datetime
-
-from tqdm.auto import trange, tqdm
 
 import jax
+from jax import random
 from jax import numpy as jnp
 
 from flax.training import checkpoints
@@ -17,24 +14,7 @@ import optax
 
 from npf.jax.models import *
 from npf.jax.data import GPSampler, RBFKernel, PeriodicKernel, Matern52Kernel
-
-
-_LOG_SHORT_FORMAT = "[%(asctime)s] %(message)s"
-_LOG_LONG_FORMAT = "[%(asctime)s][%(levelname)s] %(message)s"
-_LOG_DATE_SHORT_FORMAT = "%H:%M:%S"
-_LOG_DATE_LONG_FORMAT = "%Y-%m-%d %H:%M:%S"
-
-
-class TqdmHandler(logging.Handler):
-    def emit(self, record):
-        try:
-            msg = self.format(record)
-            tqdm.write(msg)
-            self.flush()
-        except (KeyboardInterrupt, SystemExit):
-            raise
-        except:
-            self.handleError(record)
+import npf.utils as utils
 
 
 def get_train_step(model, **kwargs):
@@ -66,7 +46,7 @@ def get_eval_step(model, **kwargs):
 
 
 def init_model(key, model, *args, **kwargs):
-    params_init_key, sample_init_key = jax.random.split(key)
+    params_init_key, sample_init_key = random.split(key)
 
     params = model.init(dict(
         params=params_init_key,
@@ -82,7 +62,7 @@ def main(args, output_dir):
 
     logger = logging.getLogger(__name__)
 
-    key = jax.random.PRNGKey(args.seed)
+    key = random.PRNGKey(args.seed)
     init_data = dict(
         x_ctx    = jnp.ones((2, 3, 1)),
         y_ctx    = jnp.ones((2, 3, 1)),
@@ -161,10 +141,10 @@ def main(args, output_dir):
     train_step = get_train_step(model, **kwargs)
     eval_step  = get_eval_step(model, **kwargs)
 
-    eval_batch = eval_sampler.sample(jax.random.PRNGKey(19), batch_size=10000)
+    eval_batch = eval_sampler.sample(random.PRNGKey(19), batch_size=5000)
 
-    for i in trange(1, args.num_steps + 1, desc=args.model, ncols=80):
-        key, model_key, data_key = jax.random.split(key, 3)
+    for i in utils.misc.track(range(args.num_steps), description=args.model):
+        key, model_key, data_key = random.split(key, 3)
         batch = sampler.sample(data_key, batch_size=256)
         state, _ = train_step(
             state, dict(sample=model_key),
@@ -215,30 +195,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Logger
-    log_name = datetime.now().strftime("%y%m%d-%H%M%S") \
-             + "-" + "".join(random.choices("abcdefghikmnopqrstuvwxyz", k=4))
+    log_name = utils.misc.get_experiment_name()
 
     output_dir = os.path.join("outs", "_", log_name)
     os.makedirs(output_dir, exist_ok=True)
 
-    logging.getLogger().addHandler(logging.NullHandler())
-    logger = logging.getLogger(__name__)
-    logger.setLevel(logging.DEBUG)
-
-    stream_handler = TqdmHandler()
-    stream_handler.setLevel(logging.INFO)
-    stream_handler.setFormatter(logging.Formatter(fmt=_LOG_SHORT_FORMAT, datefmt=_LOG_DATE_SHORT_FORMAT))
-    logger.addHandler(stream_handler)
-
-    debug_file_handler = logging.FileHandler(os.path.join(output_dir, "debug.log"), mode="w")
-    debug_file_handler.setLevel(logging.DEBUG)
-    debug_file_handler.setFormatter(logging.Formatter(fmt=_LOG_LONG_FORMAT, datefmt=_LOG_DATE_LONG_FORMAT))
-    logger.addHandler(debug_file_handler)
-
-    info_file_handler = logging.FileHandler(os.path.join(output_dir, "info.log"), mode="w")
-    info_file_handler.setLevel(logging.INFO)
-    info_file_handler.setFormatter(logging.Formatter(fmt=_LOG_SHORT_FORMAT, datefmt=_LOG_DATE_LONG_FORMAT))
-    logger.addHandler(info_file_handler)
+    logger = utils.misc.setup_logger(__name__, output_dir)
 
     logger.debug("python " + " ".join(sys.argv))
 

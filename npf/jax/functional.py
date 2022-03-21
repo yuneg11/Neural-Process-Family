@@ -15,7 +15,7 @@ __all__ = [
     "flatten",
     "unflatten",
     "get_mask",
-    "apply_mask",
+    "masked_fill",
     "masked_sum",
     "masked_mean",
     "masked_min",
@@ -23,6 +23,7 @@ __all__ = [
     "repeat_axis",
     "logsumexp",
     "logmeanexp",
+    "apply_mask",
 ]
 
 
@@ -65,7 +66,7 @@ def process_mask_axis(a_ndim, mask_ndim, mask_axis: OptAxis = None, non_mask_axi
     else:
         raise ValueError("Only one of mask_axis and non_mask_axis can be specified")
 
-    return mask_axis, non_mask_axis
+    return tuple(mask_axis), tuple(non_mask_axis)
 
 
 def is_maskable(a, mask, mask_axis: OptAxis = None, non_mask_axis: OptAxis = None):
@@ -148,7 +149,7 @@ def get_mask(n: int, start: int = 0, stop: int = None):
     return mask
 
 
-def apply_mask(
+def masked_fill(
     a,
     mask,
     mask_axis: OptAxis = None,
@@ -268,3 +269,6 @@ def logmeanexp(a, axis: Axis = None, b = None, keepdims: bool = False, return_si
       - math.log(divider)
 
     return a
+
+
+apply_mask = masked_fill

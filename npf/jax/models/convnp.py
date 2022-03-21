@@ -16,25 +16,17 @@ from ..modules import (
     SetConv1dDecoder,
 )
 
+
 __all__ = [
     "ConvNPBase",
     "ConvNP",
 ]
 
 
-
 #! TODO: Change model to support on-the-grid(discretized) data.
 class ConvNPBase(LatentNPF):
     """
     Base class of Convolutional Neural Process
-
-    Args:
-        discretizer: [[batch, context, x_dim], [batch, target, x_dim]] -> [1, discrete, 1]
-        encoder:     [[batch, discrete, x_dim], [batch, context, x_dim], [batch, context, y_dim]] -> [batch, y_dim + 1, discrete]
-        determ_cnn:  [batch, y_dim + 1, discrete] -> [batch, z_dim x 2, discrete]
-        latent_cnn:  [batch, latent, z_dim, discrete] -> [batch, latent, y_dim x 2, discrete]
-        decoder:     [[batch, latent, target, x_dim], [batch, latent, discrete, x_dim], [batch, latent, y_dim, discrete]] -> [batch, latent, target, y_dim]
-        loss_type:   "vi" or "ml"
     """
 
     discretizer: nn.Module = None
@@ -57,9 +49,9 @@ class ConvNPBase(LatentNPF):
         h: Array[B, D, Y + 1],
     ) -> Tuple[Array[B, D, Z], Array[B, D, Z]]:
 
-        z_mu_log_sigma = self.determ_cnn(h)                                     # [batch, discrete, z_dim x 2]
-        z_mu, z_log_sigma = jnp.split(z_mu_log_sigma, 2, axis=-1)               # [batch, discrete, z_dim] x 2
-        z_sigma = 0.1 + 0.9 * nn.sigmoid(z_log_sigma)                           # [batch, discrete, z_dim]
+        z_mu_log_sigma = self.determ_cnn(h)                                                         # [batch, discrete, z_dim x 2]
+        z_mu, z_log_sigma = jnp.split(z_mu_log_sigma, 2, axis=-1)                                   # [batch, discrete, z_dim] x 2
+        z_sigma = 0.1 + 0.9 * nn.sigmoid(z_log_sigma)                                               # [batch, discrete, z_dim]
         return z_mu, z_sigma
 
     def _predict(self,
@@ -72,20 +64,20 @@ class ConvNPBase(LatentNPF):
     ) -> Tuple[Array[B, L, T, Y], Array[B, L, T, Y], Array[B, D, Z], Array[B, D, Z], Array[1, D, X]]:
 
         # Discretize
-        x_grid, mask_grid = self.discretizer(x_ctx, x_tar, mask_ctx, mask_tar)  # [1, discrete, x_dim] (broadcastable to [batch, discrete, x_dim]), [discrete]
+        x_grid, mask_grid = self.discretizer(x_ctx, x_tar, mask_ctx, mask_tar)                      # [1, discrete, x_dim] (broadcastable to [batch, discrete, x_dim]), [discrete]
 
         # Encode
-        h_ctx = self.encoder(x_grid, x_ctx, y_ctx, mask_ctx)                    # [batch, discrete, y_dim + 1]
+        h_ctx = self.encoder(x_grid, x_ctx, y_ctx, mask_ctx)                                        # [batch, discrete, y_dim + 1]
 
         # Deterministic convolution
-        z_ctx_mu, z_ctx_sigma = self._determ_conv(h_ctx)                        # [batch, discrete, z_dim] x 2
+        z_ctx_mu, z_ctx_sigma = self._determ_conv(h_ctx)                                            # [batch, discrete, z_dim] x 2
 
         # Latent sample
         rng = self.make_rng("sample")
         num_batches, num_discretes, z_dim = z_ctx_mu.shape
         shape = (num_batches, num_latents, num_discretes, z_dim)
-        z_samples = jnp.expand_dims(z_ctx_mu, axis=-3) \
-                  + jnp.expand_dims(z_ctx_sigma, axis=-3) * random.normal(rng, shape=shape)         # [batch, latent, discrete, z_dim]
+        z_samples = jnp.expand_dims(z_ctx_mu, axis=1) \
+                  + jnp.expand_dims(z_ctx_sigma, axis=1) * random.normal(rng, shape=shape)          # [batch, latent, discrete, z_dim]
         z_samples = z_samples.reshape(num_batches * num_latents, num_discretes, z_dim)              # [batch x latent, discrete, z_dim]
 
         # Latent convolution
@@ -95,11 +87,11 @@ class ConvNPBase(LatentNPF):
         sigma_grid = nn.softplus(log_sigma_grid)                                                    # [batch, latent, discrete, y_dim]
 
         # Decode
-        mu    = self.decoder(x_tar, x_grid, mu_grid,    mask_grid)              # [batch, latent, target, y_dim]
-        sigma = self.decoder(x_tar, x_grid, sigma_grid, mask_grid)              # [batch, latent, target, y_dim]
+        mu    = self.decoder(x_tar, x_grid, mu_grid,    mask_grid)                                  # [batch, latent, target, y_dim]
+        sigma = self.decoder(x_tar, x_grid, sigma_grid, mask_grid)                                  # [batch, latent, target, y_dim]
 
-        mu    = F.apply_mask(mu,    mask_tar, axis=-2)                          # [batch, latent, target, y_dim]
-        sigma = F.apply_mask(sigma, mask_tar, axis=-2)                          # [batch, latent, target, y_dim]
+        mu    = F.masked_fill(mu,    mask_tar, non_mask_axis=(1, -1))                               # [batch, latent, target, y_dim]
+        sigma = F.masked_fill(sigma, mask_tar, non_mask_axis=(1, -1))                               # [batch, latent, target, y_dim]
 
         return mu, sigma, z_ctx_mu, z_ctx_sigma, x_grid
 
@@ -129,18 +121,17 @@ class ConvNPBase(LatentNPF):
         mu, sigma, z_ctx_mu, z_ctx_sigma, x_grid = self._predict(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_latents)
 
         # Target latent distribution
-        h_tar = self.encoder(x_grid, x_tar, y_tar, mask_tar)                    # [batch, discrete, y_dim + 1]
-        z_tar_mu, z_tar_sigma = self._determ_conv(h_tar)                        # [batch, discrete, z_dim] x 2
+        h_tar = self.encoder(x_grid, x_tar, y_tar, mask_tar)                                        # [batch, discrete, y_dim + 1]
+        z_tar_mu, z_tar_sigma = self._determ_conv(h_tar)                                            # [batch, discrete, z_dim] x 2
 
         # Loss
-        log_likelihood = self._log_likelihood(y_tar, mu, sigma)                 # [batch, latent, target]
-        log_likelihood = F.masked_mean(log_likelihood, mask_tar, axis=-1)       # [batch, latent]
-        log_likelihood = jnp.mean(log_likelihood)                               # [1]
+        log_likelihood = self._log_likelihood(y_tar, mu, sigma)                                     # [batch, latent, target]
+        log_likelihood = F.masked_mean(log_likelihood, mask_tar, non_mask_axis=-2)                  # [1]
 
-        kl_divergence = self._kl_divergence(z_tar_mu, z_tar_sigma, z_ctx_mu, z_ctx_sigma)  # [batch, discrete, z_dim]
-        kl_divergence = jnp.mean(kl_divergence)                                 # [1]
+        kl_divergence = self._kl_divergence(z_tar_mu, z_tar_sigma, z_ctx_mu, z_ctx_sigma)           # [batch, discrete, z_dim]
+        kl_divergence = jnp.mean(kl_divergence)                                                     # [1]
 
-        loss = -log_likelihood + kl_divergence                                  # [1]
+        loss = -log_likelihood + kl_divergence                                                      # [1]
 
         return loss
 
