@@ -1,11 +1,12 @@
-from ..type import *
+from ..typing import *
 
 import math
 
 from jax import numpy as jnp
+from jax.scipy import stats
 from flax import linen as nn
 
-from .base import ConditionalNPF
+from .base import NPF
 from .. import functional as F
 from ..modules import (
     # UNet,
@@ -15,31 +16,40 @@ from ..modules import (
     SetConv1dDecoder,
 )
 
-__all__ = ["ConvCNPBase", "ConvCNP"]
+__all__ = [
+    "ConvCNPBase",
+    "ConvCNP",
+]
 
 
 
 #! TODO: Change model to support on-the-grid(discretized) data.
-class ConvCNPBase(ConditionalNPF):
+class ConvCNPBase(NPF):
     """
     Base class of Convolutional Conditional Neural Process
     """
 
-    discretizer: nn.Module = None
-    encoder:     nn.Module = None
-    cnn:         nn.Module = None
-    decoder:     nn.Module = None
-    min_sigma:   float     = 0.1
+    discretizer:   Optional[nn.Module] = None
+    encoder:       nn.Module = None
+    cnn:           nn.Module = None
+    mu_decoder:    nn.Module = None
+    sigma_decoder: nn.Module = None
+    min_sigma:     float = 0.1
 
     def __post_init__(self):
         super().__post_init__()
+        if self.encoder is None:
+            raise ValueError("encoder is not specified")
         if self.cnn is None:
             raise ValueError("cnn is not specified")
-        if self.decoder is None:
-            raise ValueError("decoder is not specified")
+        if self.mu_decoder is None:
+            raise ValueError("mu_decoder is not specified")
+        if self.sigma_decoder is None:
+            raise ValueError("sigma_decoder is not specified")
 
     @nn.compact
-    def __call__(self,
+    def __call__(
+        self,
         x_ctx:    Array[B, [C], X],
         y_ctx:    Array[B, [C], Y],
         x_tar:    Array[B, [T], X],
@@ -59,12 +69,42 @@ class ConvCNPBase(ConditionalNPF):
         sigma_grid = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma_grid)            # [batch, discrete, y_dim]
 
         # Decode
-        mu    = self.decoder(x_tar, x_grid, mu_grid,    mask_grid)                                  # [batch, target, y_dim]
-        sigma = self.decoder(x_tar, x_grid, sigma_grid, mask_grid)                                  # [batch, target, y_dim]
+        mu    = self.mu_decoder(x_tar, x_grid, mu_grid,    mask_grid)                               # [batch, target, y_dim]
+        sigma = self.sigma_decoder(x_tar, x_grid, sigma_grid, mask_grid)                            # [batch, target, y_dim]
 
         mu    = F.masked_fill(mu,    mask_tar, non_mask_axis=-1)                                    # [batch, target, y_dim]
         sigma = F.masked_fill(sigma, mask_tar, non_mask_axis=-1)                                    # [batch, target, y_dim]
         return mu, sigma
+
+    def log_likelihood(
+        self,
+        x_ctx:    Array[B, [C], X],
+        y_ctx:    Array[B, [C], Y],
+        x_tar:    Array[B, [T], X],
+        y_tar:    Array[B, [T], Y],
+        mask_ctx: Array[B, [C]],
+        mask_tar: Array[B, [T]],
+    ) -> Array:
+
+        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar)                                   # [batch, *target, y_dim] x 2
+
+        log_prob = stats.norm.logpdf(y_tar, mu, sigma)                                              # [batch, *target, y_dim]
+        ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, *target]
+        ll = F.masked_mean(ll, mask_tar)                                                            # (1)
+        return ll                                                                                   # (1)
+
+    def loss(
+        self,
+        x_ctx:    Array[B, [C], X],
+        y_ctx:    Array[B, [C], Y],
+        x_tar:    Array[B, [T], X],
+        y_tar:    Array[B, [T], Y],
+        mask_ctx: Array[B, [C]],
+        mask_tar: Array[B, [T]],
+    ) -> Array:
+
+        loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)                 # (1)
+        return loss
 
 
 #! TODO: Add 2d model
@@ -103,8 +143,9 @@ class ConvCNP:
         )
 
         return ConvCNPBase(
-            discretizer = discretizer,
-            encoder     = SetConv1dEncoder(init_log_scale=init_log_scale),
-            cnn         = Net(dimension=1, hidden_features=cnn_dims, out_features=(y_dim * 2)),
-            decoder     = SetConv1dDecoder(init_log_scale=init_log_scale),
+            discretizer   = discretizer,
+            encoder       = SetConv1dEncoder(init_log_scale=init_log_scale),
+            cnn           = Net(dimension=1, hidden_features=cnn_dims, out_features=(y_dim * 2)),
+            mu_decoder    = SetConv1dDecoder(init_log_scale=init_log_scale),
+            sigma_decoder = SetConv1dDecoder(init_log_scale=init_log_scale),
         )

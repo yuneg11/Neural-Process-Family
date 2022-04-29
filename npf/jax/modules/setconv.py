@@ -1,4 +1,4 @@
-from ..type import *
+from ..typing import *
 
 from abc import abstractmethod
 

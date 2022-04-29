@@ -1,2 +1,7 @@
+/.mypy_cache
+/build
+/dist
+/np_family.egg-info
+/docs/_build
 /outs
-/*.ipynb
+/_*

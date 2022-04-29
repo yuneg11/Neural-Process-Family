@@ -1,9 +1,8 @@
-from ..type import *
-
-import math
+from ..typing import *
 
 import jax
 from jax import numpy as jnp
+from jax.scipy import stats
 from jax import random
 from flax import linen as nn
 
@@ -25,14 +24,17 @@ __all__ = [
 ]
 
 
+# TODO: Further refactor sampling functions
+
+
 # Temporary implementation of a.ndim == 2 and p.ndim == 2
 def random_choice(key, a, shape: Sequence[int] = (), replace: bool = True, p = None, axis: int = 0):
     assert a.ndim == 2 and p is not None and p.ndim == 2, "only support a.ndim == 2 and p.ndim == 2"
     _shape = shape[1:] if shape else ()
     _axis = axis - 1 if axis > 0 else 1
-    _vaxis = 0 if axis > 0 else 1
-    _body = lambda _a, _p: random.choice(key, _a, shape=_shape, p=_p, replace=replace, axis=_axis)
-    result = jax.vmap(_body, in_axes=(_vaxis, _vaxis), out_axes=_vaxis)(a, p)
+    vaxis = 0 if axis > 0 else 1
+    body = lambda _a, _p: random.choice(key, _a, shape=_shape, p=_p, replace=replace, axis=_axis)
+    result = jax.vmap(body, in_axes=(vaxis, vaxis), out_axes=vaxis)(a, p)
     return result
 
 
@@ -70,71 +72,164 @@ def sample(
 
 
 class BNPMixin(nn.Module):
+    """
+    Mixins for Bootstrapping Neural Process
+    """
 
-    @nn.compact
-    def __call__(self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+    def _bootstrap(
+        self,
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        mask_ctx: Array[B, C],
         num_samples: int = 1,
-        _return_aux: bool = False,
-    ) -> Tuple[Array[B, S, [T], Y], Array[B, S, [T], Y]]:
+    ) -> Tuple[Array[B, S, C, Y], Array[B, S, C, Y]]:
 
-        _x_ctx,    _ = F.flatten(x_ctx,    start=1, stop=-1)                                        # [batch, context, x_dim]
-        _y_ctx,    _ = F.flatten(y_ctx,    start=1, stop=-1)                                        # [batch, context, y_dim]
-        _x_tar, meta = F.flatten(x_tar,    start=1, stop=-1)                                        # [batch, target,  x_dim]
-        _mask_ctx, _ = F.flatten(mask_ctx, start=1)                                                 # [batch, context]
-        _mask_tar, _ = F.flatten(mask_tar, start=1)                                                 # [batch, target]
-
-        # Bootstrapping
         key = self.make_rng("sample")
-        b_x_ctx, b_y_ctx = sample(key, _x_ctx, _y_ctx, mask=_mask_ctx, num_samples=num_samples)     # [batch, sample, context, x_dim], [batch, sample, context, y_dim]
-        s_x_ctx = F.repeat_axis(_x_ctx, num_samples, axis=1)                                        # [batch, sample, context, x_dim]
+        b_x_ctx, b_y_ctx = sample(key, x_ctx, y_ctx, mask=mask_ctx, num_samples=num_samples)        # [batch, sample, context, x_dim], [batch, sample, context, y_dim]
+        s_x_ctx    = jnp.repeat(x_ctx,    num_samples, axis=0)                                      # [batch x sample, context, x_dim]
+        s_mask_ctx = jnp.repeat(mask_ctx, num_samples, axis=0)                                      # [batch x sample, context]
 
-        b_ctx = jnp.concatenate((b_x_ctx, b_y_ctx), axis=-1)                                        # [batch, sample, context, x_dim + y_dim]
-        b_r_i_ctx = self._encode(b_ctx, _mask_ctx)                                                  # [batch, sample, context, r_dim]
-        b_r_ctx = self._aggregate(b_r_i_ctx, b_x_ctx, s_x_ctx, _mask_ctx)                           # [batch, sample, context, r_dim]
+        shape = b_x_ctx.shape[0:2]
+        b_x_ctx = F.flatten(b_x_ctx, start=0, stop=2)                                               # [batch x sample, context, x_dim]
+        b_y_ctx = F.flatten(b_y_ctx, start=0, stop=2)                                               # [batch x sample, context, y_dim]
 
-        b_query = jnp.concatenate((b_x_ctx, b_r_ctx), axis=-1)                                      # [batch, sample, context, x_dim + r_dim]
-        b_mu, b_sigma = self._decode(b_query, _mask_ctx)                                            # [batch, sample, context, y_dim]
+        # TODO: Check the mask of b_x_ctx and b_y_ctx is s_mask_ctx
+        b_r_i_ctx = self._encode(b_x_ctx, b_y_ctx, s_mask_ctx)                                      # [batch x sample, context, r_dim]
+        b_r_ctx = self._aggregate(s_x_ctx, b_x_ctx, b_r_i_ctx, s_mask_ctx)                          # [batch x sample, context, r_dim]
+        b_mu, b_sigma = self._decode(s_x_ctx, b_r_ctx, s_mask_ctx)                                  # [batch x sample, context, y_dim]
 
-        # Residual
+        b_mu    = F.unflatten(b_mu,    shape, axis=0)                                               # [batch, sample, context, y_dim]
+        b_sigma = F.unflatten(b_sigma, shape, axis=0)                                               # [batch, sample, context, y_dim]
+        return b_mu, b_sigma                                                                        # [batch, sample, context, y_dim] x 2
+
+    def _residual_sample(
+        self,
+        x_ctx:    Array[B, C, X],
+        y_ctx:    Array[B, C, Y],
+        b_mu:     Array[B, S, C, Y],
+        b_sigma:  Array[B, S, C, Y],
+        mask_ctx: Array[B, C],
+    ) -> Tuple[Array[B, S, C, X], Array[B, S, C, Y]]:
+
         key = self.make_rng("sample")
-        s_y_ctx = F.repeat_axis(_y_ctx, num_samples, axis=1)                                        # [batch, sample, context, y_dim]
-        res = sample(key, (s_y_ctx - b_mu) / b_sigma, mask=_mask_ctx)                               # [batch, sample, context, y_dim]
-        res -= F.masked_mean(res, _mask_ctx, axis=-2, mask_axis=(0, -2), keepdims=True)             # [batch, sample, context, y_dim]
+        s_x_ctx = F.repeat_axis(x_ctx, b_mu.shape[1], axis=1)                                       # [batch, sample, context, x_dim]
+        s_y_ctx = F.repeat_axis(y_ctx, b_mu.shape[1], axis=1)                                       # [batch, sample, context, y_dim]
+
+        res = sample(key, (s_y_ctx - b_mu) / b_sigma, mask=mask_ctx)                                # [batch, sample, context, y_dim]
+        res -= F.masked_mean(res, mask_ctx, axis=-2, mask_axis=(0, -2), keepdims=True)              # [batch, sample, context, y_dim]
 
         res_x_ctx = s_x_ctx                                                                         # [batch, sample, context, x_dim]
         res_y_ctx = b_mu + b_sigma * res                                                            # [batch, sample, context, y_dim]
+        return res_x_ctx, res_y_ctx                                                                 # [batch, sample, context, x_dim], [batch, sample, context, y_dim]
 
-        # Encode
-        _ctx = jnp.concatenate((_x_ctx, _y_ctx), axis=-1)                                           # [batch, context, x_dim + y_dim]
-        r_i_ctx = self._encode(_ctx, _mask_ctx)                                                     # [batch, context, r_dim]
-        r_ctx = self._aggregate(r_i_ctx, _x_ctx, _x_tar, _mask_ctx)                                 # [batch, target,  r_dim]
+    def _adaptation_decode(
+        self,
+        x_tar:     Array[B, T, X],
+        r_ctx:     Array[B, T, R],
+        res_r_ctx: Array[B, S, T, R],
+        mask_tar:  Array[B, T],
+    ) -> Tuple[Array[B, S, T, Y], Array[B, S, T, Y]]:
 
-        s_x_tar = F.repeat_axis(_x_tar, num_samples, axis=1)                                        # [batch, sample, target,  y_dim]
-        res_ctx = jnp.concatenate((res_x_ctx, res_y_ctx), axis=-1)                                  # [batch, sample, context, x_dim + y_dim]
-        res_r_i_ctx = self._encode(res_ctx, _mask_ctx)                                              # [batch, sample, context, r_dim]
-        res_r_ctx = self._aggregate(res_r_i_ctx, res_x_ctx, s_x_tar, _mask_ctx)                     # [batch, sample, target,  r_dim]
+        # TODO: Check adaptation layer is correctly implemented
+        s_query = jnp.concatenate((x_tar, r_ctx), axis=-1)                                          # [batch, target, x_dim + r_dim]
+        s_query = F.repeat_axis(s_query, res_r_ctx.shape[1], axis=1)                                # [batch, sample, target, x_dim + r_dim]
+        r_query = nn.Dense(features=s_query.shape[-1])(res_r_ctx)                                   # [batch, sample, target, x_dim + r_dim]
+        query = s_query + r_query                                                                   # [batch, sample, target, x_dim + r_dim]
 
-        # Decode
-        s_r_ctx = F.repeat_axis(r_ctx, num_samples, axis=1)                                         # [batch, sample, target, r_dim]
-        b_query = jnp.concatenate((s_x_tar, s_r_ctx), axis=-1)                                      # [batch, sample, target, x_dim + r_dim]
-        r_query = nn.Dense(features=b_query.shape[-1])(res_r_ctx)                                   # [batch, sample, target, x_dim + r_dim]
-        query = b_query + r_query                                                                   # [batch, sample, target, x_dim + r_dim]
+        query = F.flatten(query, start=0, stop=2)                                                   # [batch x sample, target, x_dim + r_dim]
+        mu_log_sigma = self.decoder(query)                                                          # [batch x sample, target, y_dim x 2]
+        mu_log_sigma = F.unflatten(mu_log_sigma, res_r_ctx.shape[0:2], axis=0)                      # [batch, sample, target, y_dim, 2]
 
-        mu, sigma = self._decode(query, _mask_tar)                                                  # [batch, sample,  target, y_dim] x 2
-        mu    = F.unflatten(mu,    meta, axis=-2)                                                   # [batch, sample, *target, y_dim]
-        sigma = F.unflatten(sigma, meta, axis=-2)                                                   # [batch, sample, *target, y_dim]
+        mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, sample, target, y_dim] x 2
+        sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma)                      # [batch, sample, target, y_dim]
+        return mu, sigma                                                                            # [batch, sample, target, y_dim] x 2
 
-        if _return_aux:
-            return mu, sigma, r_ctx
+    @nn.compact
+    def __call__(
+        self,
+        x_ctx:    Array[B, [C], X],
+        y_ctx:    Array[B, [C], Y],
+        x_tar:    Array[B, [T], X],
+        mask_ctx: Array[B, [C]],
+        mask_tar: Array[B, [T]],
+        num_samples: int = 1,
+        return_aux: bool = False,
+    ) -> Union[
+        Tuple[Array[B, S, [T], Y], Array[B, S, [T], Y]],
+        Tuple[Array[B, S, [T], Y], Array[B, S, [T], Y], Array[B, T, R]],
+    ]:
+
+        # Flatten
+        shape_tar = x_tar.shape[1:-1]
+        x_ctx    = F.flatten(x_ctx,    start=1, stop=-1)                                            # [batch, context, x_dim]
+        y_ctx    = F.flatten(y_ctx,    start=1, stop=-1)                                            # [batch, context, y_dim]
+        x_tar    = F.flatten(x_tar,    start=1, stop=-1)                                            # [batch, target,  x_dim]
+        mask_ctx = F.flatten(mask_ctx, start=1)                                                     # [batch, context]
+        mask_tar = F.flatten(mask_tar, start=1)                                                     # [batch, target]
+
+        # Algorithm
+        b_mu, b_sigma = self._bootstrap(x_ctx, y_ctx, mask_ctx, num_samples)                        # [batch, sample, context, y_dim] x 2
+        res_x_ctx, res_y_ctx = self._residual_sample(x_ctx, y_ctx, b_mu, b_sigma, mask_ctx)         # [batch, sample, context, x_dim], [batch, sample, context, y_dim]
+
+        shape_res = res_x_ctx.shape[0:2]
+        res_x_ctx = F.flatten(res_x_ctx, start=0, stop=2)                                           # [batch x sample, context, x_dim]
+        res_y_ctx = F.flatten(res_y_ctx, start=0, stop=2)                                           # [batch x sample, context, x_dim]
+        s_x_tar    = jnp.repeat(x_tar,    num_samples, axis=0)                                      # [batch x sample, target,  x_dim]
+        s_mask_ctx = jnp.repeat(mask_ctx, num_samples, axis=0)                                      # [batch x sample, context]
+
+        r_i_ctx = self._encode(x_ctx, y_ctx, mask_ctx)                                              # [batch, context, r_dim]
+        r_ctx = self._aggregate(x_tar, x_ctx, r_i_ctx, mask_ctx)                                    # [batch, target,  r_dim]
+
+        res_r_i_ctx = self._encode(res_x_ctx, res_y_ctx, s_mask_ctx)                                # [batch x sample, context, r_dim]
+        res_r_ctx = self._aggregate(s_x_tar, res_x_ctx, res_r_i_ctx, s_mask_ctx)                    # [batch x sample, target,  r_dim]
+        res_r_ctx = F.unflatten(res_r_ctx, shape_res, axis=0)                                       # [batch, sample, target, r_dim]
+
+        mu, sigma = self._adaptation_decode(x_tar, r_ctx, res_r_ctx, mask_tar)                      # [batch, sample, target, y_dim] x 2
+
+        # Unflatten and mask
+        mu    = F.masked_fill(mu,    mask_tar, fill_value=0.,   non_mask_axis=(1, -1))              # [batch, sample, target, y_dim]
+        sigma = F.masked_fill(sigma, mask_tar, fill_value=1e-6, non_mask_axis=(1, -1))              # [batch, sample, target, y_dim]
+        mu    = F.unflatten(mu,    shape_tar, axis=-2)                                              # [batch, sample, *target, y_dim]
+        sigma = F.unflatten(sigma, shape_tar, axis=-2)                                              # [batch, sample, *target, y_dim]
+
+        if return_aux:
+            return mu, sigma, r_ctx                                                                 # [batch, sample, *target, y_dim] x 2, [batch, target, r_dim]
         else:
-            return mu, sigma
+            return mu, sigma                                                                        # [batch, sample, *target, y_dim] x 2
 
-    def log_likelihood(self,
+    def log_likelihood(
+        self,
+        x_ctx:    Array[B, [C], X],
+        y_ctx:    Array[B, [C], Y],
+        x_tar:    Array[B, [T], X],
+        y_tar:    Array[B, [T], Y],
+        mask_ctx: Array[B, [C]],
+        mask_tar: Array[B, [T]],
+        num_samples: int = 1,
+        return_aux: bool = False,
+    ) -> Union[
+        Array,
+        Tuple[Array, Array[B, T, R]],
+    ]:
+
+        mu, sigma, aux = \
+            self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples, return_aux=True)             # [batch, sample, *target, y_dim] x 2, [batch, target, r_dim]
+
+        s_y_tar = jnp.expand_dims(y_tar, axis=1)                                                    # [batch, 1,      *target, y_dim]
+        log_prob = stats.norm.logpdf(s_y_tar, mu, sigma)                                            # [batch, sample, *target, y_dim]
+
+        ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, sample, *target]
+        ll = F.masked_mean(ll, mask_tar, axis=[-d for d in range(1, mask_tar.ndim)], non_mask_axis=1) # [batch, sample]
+        ll = F.logmeanexp(ll, axis=1)                                                               # [batch]
+        ll = jnp.mean(ll)                                                                           # (1)
+
+        if return_aux:
+            return ll, aux                                                                          # (1), [batch, target, r_dim]
+        else:
+            return ll                                                                               # (1)
+
+    def loss(
+        self,
         x_ctx:    Array[B, [C], X],
         y_ctx:    Array[B, [C], Y],
         x_tar:    Array[B, [T], X],
@@ -143,73 +238,34 @@ class BNPMixin(nn.Module):
         mask_tar: Array[B, [T]],
         num_samples: int = 1,
     ) -> Array:
-        """
-        Calculate log-likelihood.
-        """
 
-        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples)                      # [batch, sample, *target, y_dim] x 2, [batch, target, r_dim]
+        ll, r_ctx = \
+            self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_samples, return_aux=True) # (1), [batch, context, r_dim]
 
-        s_y_tar = jnp.expand_dims(y_tar, axis=1)                                                    # [batch, 1,      *target, y_dim]
-        log_likelihood = self._log_likelihood(s_y_tar, mu, sigma)                                   # [batch, sample, *target]
-        log_likelihood = F.logmeanexp(log_likelihood, axis=1)                                       # [batch, *target]
-        log_likelihood = F.masked_mean(log_likelihood, mask_tar)                                    # [1]
+        x_tar    = F.flatten(x_tar,    start=1, stop=-1)                                            # [batch, target, x_dim]
+        y_tar    = F.flatten(y_tar,    start=1, stop=-1)                                            # [batch, target, y_dim]
+        mask_tar = F.flatten(mask_tar, start=1)                                                     # [batch, target]
 
-        return log_likelihood
+        mu_base, sigma_base = self._decode(x_tar, r_ctx, mask_tar)                                  # [batch, target, y_dim] x 2
 
-    def loss(self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
-        num_samples: int = 1,
-        **kwargs,
-    ) -> Array:
-        """
-        Calculate loss.
-        """
+        log_prob_base = stats.norm.logpdf(y_tar, mu_base, sigma_base)                               # [batch, target, y_dim]
+        ll_base = jnp.sum(log_prob_base, axis=-1)                                                   # [batch, target]
+        ll_base = F.masked_mean(ll_base, mask_tar)                                                  # (1)
 
-        _x_tar,    _ = F.flatten(x_tar,    start=1, stop=-1)                                        # [batch, target, x_dim]
-        _y_tar,    _ = F.flatten(y_tar,    start=1, stop=-1)                                        # [batch, target, y_dim]
-        _mask_tar, _ = F.flatten(mask_tar, start=1)                                                 # [batch, target]
-
-        mu, sigma, r_ctx = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples, _return_aux=True) # [batch, sample, *target, y_dim] x 2, [batch, target, r_dim]
-
-        s_y_tar = jnp.expand_dims(y_tar, axis=1)                                                    # [batch, 1,      *target, y_dim]
-        ll = self._log_likelihood(s_y_tar, mu, sigma)                                               # [batch, sample, *target]
-        ll = F.logmeanexp(ll, axis=1)                                                               # [batch, *target]
-        ll = F.masked_mean(ll, mask_tar)                                                            # [1]
-
-        base_query = jnp.concatenate((_x_tar, r_ctx), axis=-1)                                      # [batch, target, x_dim + r_dim]
-        mu_base, sigma_base = self._decode(base_query, _mask_tar)                                   # [batch, target, y_dim] x 2
-
-        ll_base = self._log_likelihood(_y_tar, mu_base, sigma_base)                                 # [batch, target]
-        ll_base = F.masked_mean(ll_base, _mask_tar)                                                 # [1]
-
-        loss = -(ll + ll_base)
-        return loss
+        loss = -(ll + ll_base)                                                                      # (1)
+        return loss                                                                                 # (1)
 
 
 class BNPBase(BNPMixin, CNPBase):
-    f"""
+    """
     Base class of Bootstrapping Neural Process
-
-    Args:
-        encoder: [batch, ctx, x_dim + y_dim] -> [batch, ctx, r_dim]
-        decoder: [batch, tar, x_dim + r_dim] -> [batch, tar, y_dim * 2]
     """
 
 
 class AttnBNPBase(BNPMixin, AttnCNPBase):
-    f"""
-    Base class of Attentive Bootstrapping Neural Process
-
-    Args:
-        encoder: [batch, ctx, x_dim + y_dim] -> [batch, ctx, r_dim]
-        decoder: [batch, tar, x_dim + r_dim] -> [batch, tar, y_dim * 2]
     """
-
+    Base class of Attentive Bootstrapping Neural Process
+    """
 
 
 class BNP:
@@ -217,7 +273,8 @@ class BNP:
     Bootstrapping Neural Process
     """
 
-    def __new__(cls,
+    def __new__(
+        cls,
         y_dim: int,
         r_dim: int = 128,
         encoder_dims: Sequence[int] = (128, 128, 128, 128, 128),
@@ -231,10 +288,11 @@ class BNP:
 
 class AttnBNP:
     """
-    Bootstrapping Attentive Neural Process
+    Attentive Bootstrapping Neural Process
     """
 
-    def __new__(cls,
+    def __new__(
+        cls,
         y_dim: int,
         r_dim: int = 128,
         sa_heads: Optional[int] = 8,

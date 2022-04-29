@@ -8,11 +8,13 @@ from typing import (
     Callable,
 )
 
+from jax.numpy import DeviceArray
+
 
 #! TODO: temporary wrapper
 class Array(type):
     def __class_getitem__(cls, *args):
-        pass
+        return DeviceArray
 
 
 class TensorDim(str):

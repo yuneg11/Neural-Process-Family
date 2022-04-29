@@ -8,13 +8,18 @@ import jax
 from jax import random
 from jax import numpy as jnp
 
+import flax
 from flax.training import checkpoints
 from flax.training.train_state import TrainState
+
 import optax
+
+from nxcl.rich import track
+from nxcl.config import load_config, save_config, add_config_arguments, ConfigDict
+from nxcl.experimental.utils import get_experiment_name, setup_logger
 
 from npf.jax.models import *
 from npf.jax.data import GPSampler, RBFKernel, PeriodicKernel, Matern52Kernel
-import npf.utils as utils
 
 
 def get_train_step(model, **kwargs):
@@ -96,11 +101,11 @@ def main(args, output_dir):
         model = ConvCNP(y_dim=1, x_min=-2., x_max=2.)
         state = init_model(key, model, **init_data)
         kwargs = {}
-    elif args.model.lower() == "ConvNP".lower():
-        args.model = "ConvNP"
-        model = ConvNP(y_dim=1, x_min=-2., x_max=2.)
-        state = init_model(key, model, **init_data)
-        kwargs = dict(num_latents=args.num_latents)
+    # elif args.model.lower() == "ConvNP".lower():
+    #     args.model = "ConvNP"
+    #     model = ConvNP(y_dim=1, x_min=-2., x_max=2.)
+    #     state = init_model(key, model, **init_data)
+    #     kwargs = dict(num_latents=args.num_latents)
     elif args.model.lower() == "BNP".lower():
         args.model = "BNP"
         model = BNP(y_dim=1)
@@ -111,16 +116,16 @@ def main(args, output_dir):
         model = AttnBNP(y_dim=1)
         state = init_model(key, model, **init_data)
         kwargs = dict(num_samples=args.num_samples)
-    elif args.model.lower() == "ConvBNP".lower():
-        args.model = "ConvBNP"
-        model = ConvBNP(y_dim=1, x_min=-2., x_max=2.)
-        state = init_model(key, model, **init_data)
-        kwargs = dict(num_samples=args.num_samples)
-    elif args.model.lower() == "NeuBNP".lower():
-        args.model = "NeuBNP"
-        model = NeuBNP(y_dim=1)
-        state = init_model(key, model, **init_data)
-        kwargs = dict(num_samples=args.num_samples)
+    # elif args.model.lower() == "ConvBNP".lower():
+    #     args.model = "ConvBNP"
+    #     model = ConvBNP(y_dim=1, x_min=-2., x_max=2.)
+    #     state = init_model(key, model, **init_data)
+    #     kwargs = dict(num_samples=args.num_samples)
+    # elif args.model.lower() == "NeuBNP".lower():
+    #     args.model = "NeuBNP"
+    #     model = NeuBNP(y_dim=1)
+    #     state = init_model(key, model, **init_data)
+    #     kwargs = dict(num_samples=args.num_samples)
     else:
         raise ValueError(f"Unknown model: {args.model}")
 
@@ -143,7 +148,7 @@ def main(args, output_dir):
 
     eval_batch = eval_sampler.sample(random.PRNGKey(19), batch_size=5000)
 
-    for i in utils.misc.track(range(args.num_steps), description=args.model):
+    for i in track(range(args.num_steps), description=args.model):
         key, model_key, data_key = random.split(key, 3)
         batch = sampler.sample(data_key, batch_size=256)
         state, _ = train_step(
@@ -180,6 +185,58 @@ def main(args, output_dir):
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(add_help=False, conflict_handler="resolve")
+    parser.add_argument("-f", "--config-file", type=str, required=True)
+    args, rest_args = parser.parse_known_args()
+
+    config: ConfigDict = load_config(args.config_file).lock()
+    add_config_arguments(parser, config, aliases={
+        "train.seed":              ["-s",   "--seed"],
+        "train.num_epochs":        ["-e",   "--epochs"],
+        "dataset.name":            ["-d",   "--dataset"],
+        "dataset.batch_size":      ["-bs",  "--batch-size"],
+        "model.name":              ["-m",   "--model"],
+        "optimizer.name":          ["-opt", "--optimizer"],
+        "optimizer.learning_rate": ["-lr",  "--learning-rate"],
+    })
+    parser.add_argument("-f", "--config-file", default=argparse.SUPPRESS)
+    parser.add_argument("-h", "--help", action="help", default=argparse.SUPPRESS)
+    args = parser.parse_args(rest_args)
+
+    config.update(vars(args))
+
+    # Logger
+    log_name = get_experiment_name()
+    output_dir = os.path.join("outs", "_", log_name)
+    latest_link = os.path.join("outs", "_", "_latest")
+
+    os.makedirs(output_dir, exist_ok=True)
+    if os.path.exists(latest_link):
+        os.remove(latest_link)
+    os.symlink(log_name, latest_link)
+    save_config(config, os.path.join(output_dir, "config.yaml"))
+
+    logger = setup_logger(__name__, output_dir, suppress=[jax, flax])
+    logger.debug("python " + " ".join(sys.argv))
+
+    args_str = "Configs:"
+    for k, v in config.items(flatten=True):
+        args_str += f"\n    {k:<25}: {v}"
+    logger.info(args_str)
+
+    logger.info(f"Output directory: \"{output_dir}\"")
+
+    try:
+        main(config, output_dir)
+    except KeyboardInterrupt:
+        logger.info("Interrupted")
+    except Exception as e:
+        logger.exception(e)
+
+
+if __name__ == "__main__":
     from argparse import ArgumentParser
 
     parser = ArgumentParser()
@@ -195,12 +252,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # Logger
-    log_name = utils.misc.get_experiment_name()
+    log_name = get_experiment_name()
 
     output_dir = os.path.join("outs", "_", log_name)
     os.makedirs(output_dir, exist_ok=True)
 
-    logger = utils.misc.setup_logger(__name__, output_dir)
+    logger = setup_logger(__name__, output_dir, suppress=[jax, flax])
 
     logger.debug("python " + " ".join(sys.argv))
 

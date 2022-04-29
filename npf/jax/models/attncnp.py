@@ -1,5 +1,6 @@
-from ..type import *
+from ..typing import *
 
+from jax import numpy as jnp
 from flax import linen as nn
 
 from .cnp import CNPBase
@@ -8,7 +9,6 @@ from ..modules import (
     MultiheadAttention,
     MultiheadSelfAttention,
 )
-
 
 __all__ = [
     "AttnCNPBase",
@@ -19,51 +19,51 @@ __all__ = [
 class AttnCNPBase(CNPBase):
     """
     Base class of Attentive Conditional Neural Process
-
-    Args:
-        encoder:         [batch, context, x_dim + y_dim] -> [batch, context, r_dim]
-        self_attention:  [batch, context, r_dim] -> [batch, context, r_dim]
-        cross_attention: [batch, context, r_dim] -> [batch,  target, r_dim]
-        decoder:         [batch, target, x_dim + r_dim] -> [batch, target, y_dim * 2]
     """
 
     encoder:         nn.Module = None
-    self_attention:  nn.Module = None
+    self_attention:  Optional[nn.Module] = None
     cross_attention: nn.Module = None
     decoder:         nn.Module = None
+    min_sigma:       float = 0.1
 
     def __post_init__(self):
         super().__post_init__()
         if self.cross_attention is None:
             raise ValueError("cross_attention is not specified")
 
-    def _encode(self,
-        ctx:  Array[B, ..., P, V],
+    def _encode(
+        self,
+        x:    Array[B, P, X],
+        y:    Array[B, P, Y],
         mask: Array[B, P],
-    ) -> Array[B, ..., P, R]:
+    ) -> Array[B, P, R]:
 
-        r_i = self.encoder(ctx)                                                                     # [batch, ..., point, r_dim]
+        xy = jnp.concatenate((x, y), axis=-1)                                                       # [batch, point, x_dim + y_dim]
+        r_i = self.encoder(xy)                                                                      # [batch, point, r_dim]
         if self.self_attention is not None:
-            r_i = self.self_attention(r_i, mask=mask)
-        return r_i
+            r_i = self.self_attention(r_i, mask=mask)                                               # [batch, point, r_dim]
+        return r_i                                                                                  # [batch, point, r_dim]
 
-    def _aggregate(self,
-        r_i_ctx:  Array[B, ..., C, R],
-        x_ctx:    Array[B, ..., C, X],
-        x_tar:    Array[B, ..., T, X],
+    def _aggregate(
+        self,
+        x_tar:    Array[B, T, X],
+        x_ctx:    Array[B, C, X],
+        r_i_ctx:  Array[B, C, R],
         mask_ctx: Array[B, C],
-    ) -> Array[B, ..., T, R]:
+    ) -> Array[B, T, R]:
 
-        r_ctx = self.cross_attention(x_tar, x_ctx, r_i_ctx, mask=mask_ctx)                          # [batch, ..., target, r_dim]
-        return r_ctx
+        r_ctx = self.cross_attention(x_tar, x_ctx, r_i_ctx, mask=mask_ctx)                          # [batch, target, r_dim]
+        return r_ctx                                                                                # [batch, target, r_dim]
 
 
-class AttnCNP(AttnCNPBase):
+class AttnCNP:
     """
     Attentive Conditional Neural Process
     """
 
-    def __new__(cls,
+    def __new__(
+        cls,
         y_dim: int,
         r_dim: int = 128,
         sa_heads: Optional[int] = 8,

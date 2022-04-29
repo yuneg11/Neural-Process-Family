@@ -98,16 +98,17 @@ class GPSampler:
             y += t_noise * random.t(keys[6], shape=y.shape)
 
         batch = GPData(
-            x     = F.masked_fill(x, mask,     mask_axis=(0, -2), fill_value=0),
-            y     = F.masked_fill(y, mask,     mask_axis=(0, -2), fill_value=0),
-            x_ctx = F.masked_fill(x, mask_ctx, mask_axis=(0, -2), fill_value=0),
-            y_ctx = F.masked_fill(y, mask_ctx, mask_axis=(0, -2), fill_value=0),
-            x_tar = F.masked_fill(x, mask_tar, mask_axis=(0, -2), fill_value=0),
-            y_tar = F.masked_fill(y, mask_tar, mask_axis=(0, -2), fill_value=0),
+            x     = F.masked_fill(x, mask,     fill_value=0., non_mask_axis=-1),
+            y     = F.masked_fill(y, mask,     fill_value=0., non_mask_axis=-1),
+            x_ctx = F.masked_fill(x, mask_ctx, fill_value=0., non_mask_axis=-1),
+            y_ctx = F.masked_fill(y, mask_ctx, fill_value=0., non_mask_axis=-1),
+            x_tar = F.masked_fill(x, mask_tar, fill_value=0., non_mask_axis=-1),
+            y_tar = F.masked_fill(y, mask_tar, fill_value=0., non_mask_axis=-1),
             mask     = mask,
             mask_ctx = mask_ctx,
             mask_tar = mask_tar,
         )
+
         return batch
 
 

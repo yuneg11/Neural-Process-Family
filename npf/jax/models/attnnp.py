@@ -1,10 +1,9 @@
-from ..type import *
+from ..typing import *
 
 from jax import numpy as jnp
 from flax import linen as nn
 
 from .np import NPBase
-from .. import functional as F
 from ..modules import (
     MLP,
     MultiheadAttention,
@@ -21,72 +20,71 @@ __all__ = [
 class AttnNPBase(NPBase):
     """
     Base class of Attentive Neural Process
-
-    Args:
-        latent_encoder:         [batch, context, x_dim + y_dim] -> [batch, context, z_dim x 2]
-        latent_self_attention:  [batch, context, z_dim x 2] -> [batch, context, z_dim x 2]
-        determ_encoder:         [batch, context, x_dim + y_dim] -> [batch, context, r_dim]
-        determ_self_attention:  [batch, context, r_dim] -> [batch, context, r_dim]
-        determ_cross_attention: [batch, context, r_dim] -> [batch, target, r_dim]
-        decoder:                [batch, latent, target, x_dim (+ r_dim) + z_dim] -> [batch, latent, target, y_dim x 2]
     """
 
     latent_encoder:         nn.Module = None
-    latent_self_attention:  nn.Module = None
-    determ_encoder:         nn.Module = None
-    determ_self_attention:  nn.Module = None
-    determ_cross_attention: nn.Module = None
+    latent_self_attention:  Optional[nn.Module] = None
+    determ_encoder:         Optional[nn.Module] = None
+    determ_self_attention:  Optional[nn.Module] = None
+    determ_cross_attention: Optional[nn.Module] = None
     decoder:                nn.Module = None
+    loss_type:              str = "vi"
+    min_sigma:              float = 0.1
 
-    def _determ_aggregate(self,
-        r_i_ctx:  Array[B, C, R],
-        x_ctx:    Array[B, C, R],
+    def _determ_aggregate(
+        self,
         x_tar:    Array[B, T, X],
-        mask_ctx: Array[C],
+        x_ctx:    Array[B, C, X],
+        r_i_ctx:  Array[B, C, R],
+        mask_ctx: Array[B, C],
     ) -> Array[B, T, R]:
 
         r_ctx = self.determ_cross_attention(x_tar, x_ctx, r_i_ctx, mask=mask_ctx)                   # [batch, target, r_dim]
         return r_ctx
 
-    def _encode(self,
-        x:    Array[..., P, X],
-        y:    Array[..., P, Y],
-        mask: Array[P],
+    def _encode(
+        self,
+        x:    Array[B, P, X],
+        y:    Array[B, P, Y],
+        mask: Array[B, P],
         latent_only: bool = False,
-    ) -> Union[Array[B, C, Z], Tuple[Array[B, C, Z], Array[B, C, R]]]:
+    ) -> Union[
+        Tuple[Array[B, P, Z * 2], Array[B, P, R]],
+        Array[B, P, Z * 2],
+    ]:
 
-        xy = jnp.concatenate((x, y), axis=-1)                                                       # [..., point, x_dim + y_dim]
-        _z_i = self.latent_encoder(xy)
+        xy = jnp.concatenate((x, y), axis=-1)                                                       # [batch, point, x_dim + y_dim]
+        _z_i = self.latent_encoder(xy)                                                              # [batch, point, z_dim x 2]
 
         if self.latent_self_attention is not None:
-            z_i = self.latent_self_attention(_z_i, mask=mask)
+            z_i = self.latent_self_attention(_z_i, mask=mask)                                       # [batch, point, z_dim x 2]
 
         if latent_only:
-            return z_i
+            return z_i                                                                              # [batch, point, z_dim x 2]
         else:
             if self.determ_encoder is None:
-                r_i = None
+                r_i = None                                                                          # None
             elif self.determ_encoder is self.latent_encoder:
                 if self.determ_self_attention is None:
-                    r_i = _z_i
+                    r_i = _z_i                                                                      # [batch, point, r_dim]
                 elif self.determ_self_attention is self.determ_self_attention:
-                    r_i = z_i
+                    r_i = z_i                                                                       # [batch, point, r_dim]
                 else:
-                    r_i = self.determ_self_attention(_z_i, mask=mask)
+                    r_i = self.determ_self_attention(_z_i, mask=mask)                               # [batch, point, r_dim]
             else:
-                r_i = self.determ_encoder(xy)
+                r_i = self.determ_encoder(xy)                                                       # [batch, point, r_dim]
                 if self.determ_self_attention is not None:
-                    r_i = self.determ_self_attention(r_i, mask=mask)
+                    r_i = self.determ_self_attention(r_i, mask=mask)                                # [batch, point, r_dim]
+            return z_i, r_i                                                                         # [batch, point, z_dim x 2], ([batch, point, r_dim] | None)
 
-            return z_i, r_i
 
-
-class AttnNP(AttnNPBase):
+class AttnNP:
     """
     Attentive Neural Process
     """
 
-    def __new__(cls,
+    def __new__(
+        cls,
         y_dim: int,
         r_dim: int = 128,
         z_dim: int = 128,

@@ -108,7 +108,7 @@ def process_mask(a, mask, mask_axis: OptAxis = None, non_mask_axis: OptAxis = No
     return mask
 
 
-def flatten(a, start: Optional[int] = None, stop: Optional[int] = None):
+def flatten(a, start: Optional[int] = None, stop: Optional[int] = None, return_shape: bool = False):
     """
     Flatten an array.
     """
@@ -118,24 +118,27 @@ def flatten(a, start: Optional[int] = None, stop: Optional[int] = None):
 
     original_shape = a.shape[start:stop]
     flatten_size = math.prod(original_shape)
-    meta = (original_shape, flatten_size)
 
     a = jnp.reshape(a, (*a.shape[:start], flatten_size, *a.shape[stop:]))
-    return a, meta
+
+    if return_shape:
+        return a, original_shape
+    else:
+        return a
 
 
-def unflatten(a, meta, axis: int):
+def unflatten(a, shape, axis: int):
     """
     Unflatten an array.
     """
 
     axis = axis if axis >= 0 else axis + a.ndim
-    original_shape, flatten_size = meta
+    flatten_size = math.prod(shape)
 
     if a.shape[axis] != flatten_size:
         raise ValueError(f"Size mismatch: {a.shape[axis]} != {flatten_size}")
 
-    a = jnp.reshape(a, (*a.shape[:axis], *original_shape, *a.shape[axis+1:]))
+    a = jnp.reshape(a, (*a.shape[:axis], *shape, *a.shape[axis+1:]))
     return a
 
 
