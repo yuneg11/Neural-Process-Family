@@ -2,6 +2,57 @@
 
 **This library is under construction.**
 
+
+## Installation
+
+You can choose between the following installation methods:
+
+### NPF as a library
+
+```bash
+# From PyPI (recommended)
+pip install np-family
+
+# Latest version (from current branch; dev-v4)
+pip install git+https://github.com/yuneg11/Neural-Process-Family@dev-v4
+
+# Specific release (from tag; 0.0.1.dev0)
+pip install git+https://github.com/yuneg11/Neural-Process-Family@0.0.1.dev0
+```
+
+Then, you can use the library as follows:
+
+```python
+from npf.jax.models import CNP
+
+cnp = CNP(y_dim=1)
+```
+
+You should handle other logics (include train, evaluation, etc...)
+
+### NPF as an experiment framework
+
+```bash
+# Dependencies
+pip install rich nxcl==0.0.3.dev0
+
+## And ML frameworks (JAX, PyTorch)
+# ex) pip install jax
+
+# Clone the repository
+git clone https://github.com/yuneg11/Neural-Process-Family npf
+cd npf
+```
+
+Then, you can run the experiment, for example:
+
+```bash
+python scripts/jax/train.py -f configs/attnnp.yaml -lr 0.0001 --model.train_kwargs.num_latents 30
+```
+
+The output will be saved under `outs/` directory.
+Details will be added in the future.
+
 ## Models
 
 - CNP: Conditional Neural Process
