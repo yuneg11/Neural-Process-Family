@@ -150,8 +150,8 @@ def main(config, output_dir):
     else:
         raise ValueError(f"Unknown valid dataset: {config.dataset.valid.name}")
 
-    train_batch_size = train_batch_size = config.dataset.train.batch_size
-    valid_batch_size = train_batch_size = config.dataset.valid.batch_size
+    train_batch_size = config.dataset.train.batch_size
+    valid_batch_size = config.dataset.valid.batch_size
 
     valid_batch = shard_batch(valid_sampler.sample(random.PRNGKey(19), batch_size=valid_batch_size), num_devices)
 

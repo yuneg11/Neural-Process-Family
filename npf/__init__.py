@@ -12,7 +12,7 @@ else:
 
 __all__ = [
     "jax",
-    "torch",
+    # "torch",
 ]
 
 __version__ = "0.0.1.dev0"

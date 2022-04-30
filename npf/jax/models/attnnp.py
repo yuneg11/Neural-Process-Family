@@ -67,7 +67,7 @@ class AttnNPBase(NPBase):
             elif self.determ_encoder is self.latent_encoder:
                 if self.determ_self_attention is None:
                     r_i = _z_i                                                                      # [batch, point, r_dim]
-                elif self.determ_self_attention is self.determ_self_attention:
+                elif self.determ_self_attention is self.latent_self_attention:
                     r_i = z_i                                                                       # [batch, point, r_dim]
                 else:
                     r_i = self.determ_self_attention(_z_i, mask=mask)                               # [batch, point, r_dim]

@@ -1,4 +1,4 @@
-from .base import *
+from .base import NPF
 
 from .cnp import *
 from .np import *
