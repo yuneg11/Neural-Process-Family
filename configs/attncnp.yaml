@@ -1,0 +1,35 @@
+dataset:
+  train:
+    name: RBF
+    batch_size: 256
+    args: []
+    kwargs: {}
+  valid:
+    name: RBF
+    batch_size: 5000
+    args: []
+    kwargs: {}
+  shapes:
+    x_ctx: [-1, 3, 1]
+    y_ctx: [-1, 3, 1]
+    x_tar: [-1, 4, 1]
+    y_tar: [-1, 4, 1]
+    mask_ctx: [-1, 3]
+    mask_tar: [-1, 4]
+
+model:
+  name: AttnCNP
+  kwargs: {}
+  init_kwargs: {}
+  train_kwargs: {}
+  valid_kwargs: {}
+
+optimizer:
+  name: adam
+  learning_rate: 0.0005
+
+train:
+  seed: 0
+  num_steps: 10000
+  valid_every: 100
+  save_every: 1000

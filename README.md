@@ -1,27 +1,17 @@
-# NPF
+# Neural Process Family
 
+**This library is under construction.**
 
 ## Models
 
-### Univariate NPF
-
-#### Conditional NPF
-
 - CNP: Conditional Neural Process
-- AttnCNP: Attentive Conditional Neural Process
-- ConvCNP: Convolutional Conditional Neural Process
-- BNP: Bootstrapping Neural Process
-- BANP: Bootstrapping Attentive Neural Process
-
-#### Latent NPF
-
 - NP: Neural Process
+- AttnCNP: Attentive Conditional Neural Process
 - AttnNP: Attentive Neural Process
+- ConvCNP: Convolutional Conditional Neural Process
 - ConvNP: Convolutional Neural Process
-
-### Multivariate NPF
-
-- GNP: Gaussian Neural Process
+- BNP: Bootstrapping Neural Process
+- AttnBNP: Attentive Bootstrapping Neural Process
 
 
 ## Datasets
