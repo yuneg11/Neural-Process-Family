@@ -117,9 +117,10 @@ def flatten(a, start: Optional[int] = None, stop: Optional[int] = None, return_s
     stop  = a.ndim if stop  is None else stop  if stop  >= 0 else stop  + a.ndim
 
     original_shape = a.shape[start:stop]
-    flatten_size = math.prod(original_shape)
 
-    a = jnp.reshape(a, (*a.shape[:start], flatten_size, *a.shape[stop:]))
+    if len(original_shape) != 1:
+        flatten_size = math.prod(original_shape)
+        a = jnp.reshape(a, (*a.shape[:start], flatten_size, *a.shape[stop:]))
 
     if return_shape:
         return a, original_shape
@@ -138,7 +139,9 @@ def unflatten(a, shape, axis: int):
     if a.shape[axis] != flatten_size:
         raise ValueError(f"Size mismatch: {a.shape[axis]} != {flatten_size}")
 
-    a = jnp.reshape(a, (*a.shape[:axis], *shape, *a.shape[axis+1:]))
+    if len(shape) != 1:
+        a = jnp.reshape(a, (*a.shape[:axis], *shape, *a.shape[axis+1:]))
+
     return a
 
 

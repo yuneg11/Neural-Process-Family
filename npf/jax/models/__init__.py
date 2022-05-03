@@ -9,3 +9,4 @@ from .attnnp import *
 from .convcnp import *
 
 from .bnp import *
+from .neubnp import *

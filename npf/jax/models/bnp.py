@@ -138,7 +138,7 @@ class BNPMixin(nn.Module):
 
         query = F.flatten(query, start=0, stop=2)                                                   # [batch x sample, target, x_dim + r_dim]
         mu_log_sigma = self.decoder(query)                                                          # [batch x sample, target, y_dim x 2]
-        mu_log_sigma = F.unflatten(mu_log_sigma, res_r_ctx.shape[0:2], axis=0)                      # [batch, sample, target, y_dim, 2]
+        mu_log_sigma = F.unflatten(mu_log_sigma, res_r_ctx.shape[:2], axis=0)                       # [batch, sample, target, y_dim, 2]
 
         mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, sample, target, y_dim] x 2
         sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma)                      # [batch, sample, target, y_dim]
@@ -152,6 +152,7 @@ class BNPMixin(nn.Module):
         x_tar:    Array[B, [T], X],
         mask_ctx: Array[B, [C]],
         mask_tar: Array[B, [T]],
+        *,
         num_samples: int = 1,
         return_aux: bool = False,
     ) -> Union[
@@ -205,7 +206,9 @@ class BNPMixin(nn.Module):
         y_tar:    Array[B, [T], Y],
         mask_ctx: Array[B, [C]],
         mask_tar: Array[B, [T]],
+        *,
         num_samples: int = 1,
+        as_mixture: bool = True,
         return_aux: bool = False,
     ) -> Union[
         Array,
@@ -213,15 +216,20 @@ class BNPMixin(nn.Module):
     ]:
 
         mu, sigma, aux = \
-            self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples, return_aux=True)             # [batch, sample, *target, y_dim] x 2, [batch, target, r_dim]
+            self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples=num_samples, return_aux=True) # [batch, sample, *target, y_dim] x 2, [batch, target, r_dim]
 
         s_y_tar = jnp.expand_dims(y_tar, axis=1)                                                    # [batch, 1,      *target, y_dim]
         log_prob = stats.norm.logpdf(s_y_tar, mu, sigma)                                            # [batch, sample, *target, y_dim]
-
         ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, sample, *target]
-        ll = F.masked_mean(ll, mask_tar, axis=[-d for d in range(1, mask_tar.ndim)], non_mask_axis=1) # [batch, sample]
-        ll = F.logmeanexp(ll, axis=1)                                                               # [batch]
-        ll = jnp.mean(ll)                                                                           # (1)
+
+        if as_mixture:
+            ll = F.logmeanexp(ll, axis=1)                                                           # [batch, *target]
+            ll = F.masked_mean(ll, mask_tar)                                                        # (1)
+        else:
+            axis = [-d for d in range(1, mask_tar.ndim)]
+            ll = F.masked_mean(ll, mask_tar, axis=axis, non_mask_axis=1)                            # [batch, sample]
+            ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
+            ll = jnp.mean(ll)                                                                       # (1)
 
         if return_aux:
             return ll, aux                                                                          # (1), [batch, target, r_dim]
@@ -236,11 +244,15 @@ class BNPMixin(nn.Module):
         y_tar:    Array[B, [T], Y],
         mask_ctx: Array[B, [C]],
         mask_tar: Array[B, [T]],
+        *,
         num_samples: int = 1,
+        as_mixture: bool = True,
     ) -> Array:
 
-        ll, r_ctx = \
-            self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_samples, return_aux=True) # (1), [batch, context, r_dim]
+        ll, r_ctx = self.log_likelihood(                                                            # (1), [batch, context, r_dim]
+            x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
+            num_samples=num_samples, as_mixture=as_mixture, return_aux=True,
+        )
 
         x_tar    = F.flatten(x_tar,    start=1, stop=-1)                                            # [batch, target, x_dim]
         y_tar    = F.flatten(y_tar,    start=1, stop=-1)                                            # [batch, target, y_dim]

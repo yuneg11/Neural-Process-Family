@@ -131,6 +131,7 @@ class NPBase(NPF):
         x_tar:    Array[B, [T], X],
         mask_ctx: Array[B, [C]],
         mask_tar: Array[B, [T]],
+        *,
         num_latents: int = 1,
         return_aux: bool = False,
     ) -> Union[
@@ -177,7 +178,9 @@ class NPBase(NPF):
         y_tar:    Array[B, [T], Y],
         mask_ctx: Array[B, [C]],
         mask_tar: Array[B, [T]],
+        *,
         num_latents: int = 1,
+        as_mixture: bool = True,
         return_aux: bool = False,
     ) -> Union[
         Array,
@@ -185,15 +188,20 @@ class NPBase(NPF):
     ]:
 
         mu, sigma, aux = \
-            self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_latents, return_aux=True)             # [batch, latent, *target, y_dim] x 2, ([batch, 1, z_dim] x 2)
+            self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_latents=num_latents, return_aux=True) # [batch, latent, *target, y_dim] x 2, ([batch, 1, z_dim] x 2)
 
         s_y_tar = jnp.expand_dims(y_tar, axis=1)                                                    # [batch, 1,      *target, y_dim]
         log_prob = stats.norm.logpdf(s_y_tar, mu, sigma)                                            # [batch, latent, *target, y_dim]
-
         ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, latent, *target]
-        ll = F.masked_mean(ll, mask_tar, axis=[-d for d in range(1, mask_tar.ndim)], non_mask_axis=1) # [batch, latent]
-        ll = F.logmeanexp(ll, axis=1)                                                               # [batch]
-        ll = jnp.mean(ll)                                                                           # (1)
+
+        if as_mixture:
+            ll = F.logmeanexp(ll, axis=1)                                                           # [batch, *target]
+            ll = F.masked_mean(ll, mask_tar)                                                        # (1)
+        else:
+            axis = [-d for d in range(1, mask_tar.ndim)]
+            ll = F.masked_mean(ll, mask_tar, axis=axis, non_mask_axis=1)                            # [batch, latent]
+            ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
+            ll = jnp.mean(ll)                                                                       # (1)
 
         if return_aux:
             return ll, aux                                                                          # (1), ([batch, 1, z_dim] x 2)
@@ -208,13 +216,21 @@ class NPBase(NPF):
         y_tar:    Array[B, [T], Y],
         mask_ctx: Array[B, [C]],
         mask_tar: Array[B, [T]],
+        *,
         num_latents: int = 1,
+        as_mixture: bool = False,
     ) -> Array:
 
         if self.loss_type == "vi":
-            return self.vi_loss(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents)        # (1)
+            return self.vi_loss(                                                                    # (1)
+                x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
+                num_latents=num_latents, as_mixture=as_mixture,
+            )
         elif self.loss_type == "ml":
-            return self.ml_loss(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents)        # (1)
+            return self.ml_loss(                                                                    # (1)
+                x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
+                num_latents=num_latents, as_mixture=as_mixture,
+            )
 
     def vi_loss(
         self,
@@ -224,11 +240,15 @@ class NPBase(NPF):
         y_tar:    Array[B, [T], Y],
         mask_ctx: Array[B, [C]],
         mask_tar: Array[B, [T]],
+        *,
         num_latents: int = 1,
+        as_mixture: bool = False,
     ) -> Array:
 
-        ll, (z_mu_ctx, z_sigma_ctx) = \
-            self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents, return_aux=True) # (1), ([batch, 1, z_dim] x 2)
+        ll, (z_mu_ctx, z_sigma_ctx) = self.log_likelihood(                                          # (1), ([batch, 1, z_dim] x 2)
+            x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
+            num_latents=num_latents, as_mixture=as_mixture, return_aux=True,
+        )
 
         x_tar    = F.flatten(x_tar,    start=1, stop=-1)                                            # [batch, target,  x_dim]
         y_tar    = F.flatten(y_tar,    start=1, stop=-1)                                            # [batch, target,  y_dim]
@@ -254,10 +274,15 @@ class NPBase(NPF):
         y_tar:    Array[B, [T], Y],
         mask_ctx: Array[B, [C]],
         mask_tar: Array[B, [T]],
+        *,
         num_latents: int = 1,
+        as_mixture: bool = False,
     ) -> Array:
 
-        loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents)    # (1)
+        loss = -self.log_likelihood(                                                                # (1)
+            x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
+            num_latents=num_latents, as_mixture=as_mixture,
+        )
         return loss                                                                                 # (1)
 
 

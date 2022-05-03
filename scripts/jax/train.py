@@ -143,7 +143,7 @@ def main(config, output_dir):
 
     if config.dataset.valid.name == "RBF":
         valid_sampler = GPSampler(RBFKernel())
-    elif config.dataset.train.name == "Matern":
+    elif config.dataset.valid.name == "Matern":
         valid_sampler = GPSampler(Matern52Kernel())
     elif config.dataset.valid.name == "Periodic":
         valid_sampler = GPSampler(PeriodicKernel())

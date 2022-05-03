@@ -10,6 +10,7 @@ from ..modules import (
     MultiheadSelfAttention,
 )
 
+
 __all__ = [
     "AttnCNPBase",
     "AttnCNP",
