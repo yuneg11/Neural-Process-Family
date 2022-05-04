@@ -1,6 +1,7 @@
 from typing import Optional, Union, Sequence
 
 import math
+from functools import partial
 
 import numpy as np
 
@@ -18,12 +19,12 @@ __all__ = [
     "masked_fill",
     "masked_sum",
     "masked_mean",
+    "masked_std",
     "masked_min",
     "masked_max",
     "repeat_axis",
     "logsumexp",
     "logmeanexp",
-    "apply_mask",
 ]
 
 
@@ -69,7 +70,13 @@ def process_mask_axis(a_ndim, mask_ndim, mask_axis: OptAxis = None, non_mask_axi
     return tuple(mask_axis), tuple(non_mask_axis)
 
 
-def is_maskable(a, mask, mask_axis: OptAxis = None, non_mask_axis: OptAxis = None):
+@partial(jax.jit, static_argnames=("mask_axis", "non_mask_axis"))
+def is_maskable(
+    a,
+    mask,
+    mask_axis: OptAxis = None,
+    non_mask_axis: OptAxis = None,
+):
     """
     Check if a mask is maskable to array.
     """
@@ -85,12 +92,21 @@ def is_maskable(a, mask, mask_axis: OptAxis = None, non_mask_axis: OptAxis = Non
     return maskable
 
 
-def process_mask(a, mask, mask_axis: OptAxis = None, non_mask_axis: OptAxis = None):
+@partial(jax.jit, static_argnames=("mask_axis", "non_mask_axis"))
+def process_mask(
+    a,
+    mask,
+    mask_axis: OptAxis = None,
+    non_mask_axis: OptAxis = None,
+):
     """
     Process a mask.
     """
 
-    mask_axis, non_mask_axis = process_mask_axis(a.ndim, mask.ndim, mask_axis, non_mask_axis)
+    try:
+        mask_axis, non_mask_axis = process_mask_axis(a.ndim, mask.ndim, mask_axis, non_mask_axis)
+    except ValueError as e:
+        raise e
 
     try:
         target_a_shape = tuple([a.shape[d] for d in mask_axis])
@@ -108,6 +124,7 @@ def process_mask(a, mask, mask_axis: OptAxis = None, non_mask_axis: OptAxis = No
     return mask
 
 
+@partial(jax.jit, static_argnames=("start", "stop", "return_shape"))
 def flatten(a, start: Optional[int] = None, stop: Optional[int] = None, return_shape: bool = False):
     """
     Flatten an array.
@@ -128,16 +145,32 @@ def flatten(a, start: Optional[int] = None, stop: Optional[int] = None, return_s
         return a
 
 
+@partial(jax.jit, static_argnames=("shape", "axis"))
 def unflatten(a, shape, axis: int):
     """
     Unflatten an array.
     """
 
     axis = axis if axis >= 0 else axis + a.ndim
-    flatten_size = math.prod(shape)
 
-    if a.shape[axis] != flatten_size:
-        raise ValueError(f"Size mismatch: {a.shape[axis]} != {flatten_size}")
+    if -1 in shape:
+        if sum([s == -1 for s in shape]) > 1:
+            raise ValueError(f"Only one shape can be inferred: but found {shape}")
+
+        flatten_size = a.shape[axis]
+        other_size = math.prod([s for s in shape if s != -1])
+
+        if flatten_size % other_size != 0:
+            raise ValueError(f"Cannot infer the shape: {flatten_size} not divisible by {other_size}")
+
+        auto_shape = flatten_size // other_size
+        shape = tuple([s if s != -1 else auto_shape for s in shape])
+
+    else:
+        flatten_size = math.prod(shape)
+
+        if a.shape[axis] != flatten_size:
+            raise ValueError(f"Size mismatch: {a.shape[axis]} != {flatten_size}")
 
     if len(shape) != 1:
         a = jnp.reshape(a, (*a.shape[:axis], *shape, *a.shape[axis+1:]))
@@ -145,13 +178,14 @@ def unflatten(a, shape, axis: int):
     return a
 
 
+@partial(jax.jit, static_argnames=("n",))
 def get_mask(n: int, start: int = 0, stop: int = None):
     """
     Get a mask of shape (n,) which filled ones at index [start, stop).
     """
 
     stop = n if stop is None else stop
-    mask = (start <= jnp.arange(n)) & (jnp.arange(n) < stop)
+    mask = (start <= np.arange(n)) & (np.arange(n) < stop)
     return mask
 
 
@@ -180,7 +214,7 @@ def masked_sum(
     keepdims: bool = False,
 ):
     """
-    Sum a masked array along a given axis.
+    Sum of a masked array along a given axis.
     """
 
     mask = process_mask(a, mask, mask_axis, non_mask_axis)
@@ -197,11 +231,29 @@ def masked_mean(
     keepdims: bool = False,
 ):
     """
-    Mean a masked array along a given axis.
+    Mean of a masked array along a given axis.
     """
 
     mask = process_mask(a, mask, mask_axis, non_mask_axis)
     a = jnp.mean(a, axis=axis, keepdims=keepdims, where=mask)
+    return a
+
+
+def masked_std(
+    a,
+    mask,
+    axis: OptAxis = None,
+    ddof: int = 0,
+    mask_axis: OptAxis = None,
+    non_mask_axis: OptAxis = None,
+    keepdims: bool = False,
+):
+    """
+    Standard deviation of a masked array along a given axis.
+    """
+
+    mask = process_mask(a, mask, mask_axis, non_mask_axis)
+    a = jnp.std(a, axis=axis, ddof=ddof, keepdims=keepdims, where=mask)
     return a
 
 
@@ -275,6 +327,3 @@ def logmeanexp(a, axis: Axis = None, b = None, keepdims: bool = False, return_si
       - math.log(divider)
 
     return a
-
-
-apply_mask = masked_fill

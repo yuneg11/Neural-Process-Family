@@ -51,7 +51,7 @@ class CNPBase(NPF):
         mask_ctx: Array[B, C],
     ) -> Array[B, T, R]:
 
-        r_ctx = F.masked_mean(r_i_ctx, mask_ctx, axis=-2, non_mask_axis=-1, keepdims=True)          # [batch, 1,      r_dim]
+        r_ctx = F.masked_mean(r_i_ctx, mask_ctx, axis=-2, mask_axis=(0, -2), keepdims=True)         # [batch, 1,      r_dim]
         r_ctx = jnp.repeat(r_ctx, x_tar.shape[-2], axis=-2)                                         # [batch, target, r_dim]
         return r_ctx                                                                                # [batch, target, r_dim]
 
