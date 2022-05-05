@@ -24,6 +24,7 @@ class AttnCNPBase(CNPBase):
 
     encoder:         nn.Module = None
     self_attention:  Optional[nn.Module] = None
+    transform_qk:    Optional[nn.Module] = None
     cross_attention: nn.Module = None
     decoder:         nn.Module = None
     min_sigma:       float = 0.1
@@ -54,7 +55,12 @@ class AttnCNPBase(CNPBase):
         mask_ctx: Array[B, C],
     ) -> Array[B, T, R]:
 
-        r_ctx = self.cross_attention(x_tar, x_ctx, r_i_ctx, mask=mask_ctx)                          # [batch, target, r_dim]
+        if self.transform_qk is None:
+            q_i, k_i = x_tar, x_ctx                                                                 # [batch, target, x_dim],  [batch, context, x_dim]
+        else:
+            q_i, k_i = self.transform_qk(x_tar), self.transform_qk(x_ctx)                           # [batch, target, qk_dim], [batch, context, qk_dim]
+
+        r_ctx = self.cross_attention(q_i, k_i, r_i_ctx, mask=mask_ctx)                              # [batch, target, r_dim]
         return r_ctx                                                                                # [batch, target, r_dim]
 
 
@@ -69,6 +75,7 @@ class AttnCNP:
         r_dim: int = 128,
         sa_heads: Optional[int] = 8,
         ca_heads: Optional[int] = 8,
+        transform_qk_dims: Optional[Sequence[int]] = (128, 128, 128, 128, 128),
         encoder_dims: Sequence[int] = (128, 128, 128, 128, 128),
         decoder_dims: Sequence[int] = (128, 128, 128),
     ):
@@ -80,12 +87,18 @@ class AttnCNP:
             encoder = MLP(hidden_features=encoder_dims, out_features=r_dim, last_activation=False)
             self_attention = None
 
+        if transform_qk_dims is not None:
+            transform_qk = MLP(hidden_features=transform_qk_dims, out_features=r_dim, last_activation=False)
+        else:
+            transform_qk = None
+            
         cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=ca_heads)
         decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
 
         return AttnCNPBase(
             encoder=encoder,
             self_attention=self_attention,
+            transform_qk=transform_qk,
             cross_attention=cross_attention,
             decoder=decoder,
         )

@@ -1,4 +1,4 @@
-dataset:
+datasets:
   train:
     name: RBF
     batch_size: 256

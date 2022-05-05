@@ -26,6 +26,7 @@ class AttnNPBase(NPBase):
     latent_self_attention:  Optional[nn.Module] = None
     determ_encoder:         Optional[nn.Module] = None
     determ_self_attention:  Optional[nn.Module] = None
+    determ_transform_qk:    Optional[nn.Module] = None
     determ_cross_attention: Optional[nn.Module] = None
     decoder:                nn.Module = None
     loss_type:              str = "vi"
@@ -39,7 +40,12 @@ class AttnNPBase(NPBase):
         mask_ctx: Array[B, C],
     ) -> Array[B, T, R]:
 
-        r_ctx = self.determ_cross_attention(x_tar, x_ctx, r_i_ctx, mask=mask_ctx)                   # [batch, target, r_dim]
+        if self.determ_transform_qk is None:
+            q_i, k_i = x_tar, x_ctx                                                                 # [batch, target, x_dim],  [batch, context, x_dim]
+        else:
+            q_i, k_i = self.determ_transform_qk(x_tar), self.determ_transform_qk(x_ctx)             # [batch, target, qk_dim], [batch, context, qk_dim]
+
+        r_ctx = self.determ_cross_attention(q_i, k_i, r_i_ctx, mask=mask_ctx)                       # [batch, target, r_dim]
         return r_ctx
 
     def _encode(
@@ -92,6 +98,7 @@ class AttnNP:
         latent_sa_heads: Optional[int] = 8,
         determ_sa_heads: Optional[int] = 8,
         determ_ca_heads: Optional[int] = 8,
+        determ_transform_qk_dims: Optional[Sequence[int]] = (128, 128, 128, 128, 128),
         common_encoder_dims: Optional[Sequence[int]] = None,
         latent_encoder_dims: Optional[Sequence[int]] = (128, 128),
         determ_encoder_dims: Optional[Sequence[int]] = (128, 128, 128, 128, 128),
@@ -108,6 +115,7 @@ class AttnNP:
 
             determ_encoder = latent_encoder
             determ_self_attention = latent_self_attention
+            determ_transform_qk = MLP(hidden_features=determ_transform_qk_dims, out_features=r_dim, last_activation=False) if determ_transform_qk_dims is not None else None
             determ_cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=determ_ca_heads) if determ_ca_heads is not None else None
 
         else:
@@ -120,6 +128,7 @@ class AttnNP:
             if determ_encoder_dims is not None:
                 determ_encoder = MLP(hidden_features=determ_encoder_dims, out_features=r_dim, last_activation=(determ_sa_heads is not None))
                 determ_self_attention = MultiheadSelfAttention(dim_out=r_dim, num_heads=determ_sa_heads) if determ_sa_heads is not None else None
+                determ_transform_qk = MLP(hidden_features=determ_transform_qk_dims, out_features=r_dim, last_activation=False) if determ_transform_qk_dims is not None else None
                 determ_cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=determ_ca_heads) if determ_ca_heads is not None else None
             else:
                 determ_encoder = None
@@ -133,6 +142,7 @@ class AttnNP:
             latent_self_attention=latent_self_attention,
             determ_encoder=determ_encoder,
             determ_self_attention=determ_self_attention,
+            determ_transform_qk=determ_transform_qk,
             determ_cross_attention=determ_cross_attention,
             decoder=decoder,
             loss_type=loss_type,

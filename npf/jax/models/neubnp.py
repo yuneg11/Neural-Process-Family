@@ -215,6 +215,7 @@ class AttnNeuBNP:
         r_dim: int = 128,
         sa_heads: Optional[int] = 8,
         ca_heads: Optional[int] = 8,
+        transform_qk_dims: Optional[Sequence[int]] = (128, 128, 128, 128, 128),
         encoder_dims: Sequence[int] = (128, 128, 128, 128, 128),
         decoder_dims: Sequence[int] = (128, 128, 128),
     ):
@@ -226,12 +227,18 @@ class AttnNeuBNP:
             encoder = MLP(hidden_features=encoder_dims, out_features=r_dim, last_activation=False)
             self_attention = None
 
+        if transform_qk_dims is not None:
+            transform_qk = MLP(hidden_features=transform_qk_dims, out_features=r_dim, last_activation=False)
+        else:
+            transform_qk = None
+            
         cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=ca_heads)
         decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
 
         return AttnNeuBNPBase(
             encoder=encoder,
             self_attention=self_attention,
+            transform_qk=transform_qk,
             cross_attention=cross_attention,
             decoder=decoder,
         )

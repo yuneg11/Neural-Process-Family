@@ -108,16 +108,16 @@ def main(config, output_dir):
         raise ValueError(f"Unknown model: {config.model.name}")
 
     model = models[config.model.name](
-        y_dim=config.dataset.shapes.y_ctx[-1],
+        y_dim=config.datasets.shapes.y_ctx[-1],
         **config.model.get("kwargs", {}),
     )
     params = model.init(
         init_rngs,
-        x_ctx=jnp.zeros((num_devices, *config.dataset.shapes.x_ctx[1:])),
-        y_ctx=jnp.zeros((num_devices, *config.dataset.shapes.y_ctx[1:])),
-        x_tar=jnp.zeros((num_devices, *config.dataset.shapes.x_tar[1:])),
-        mask_ctx=jnp.zeros((num_devices, *config.dataset.shapes.mask_ctx[1:])),
-        mask_tar=jnp.zeros((num_devices, *config.dataset.shapes.mask_tar[1:])),
+        x_ctx=jnp.zeros((num_devices, *config.datasets.shapes.x_ctx[1:])),
+        y_ctx=jnp.zeros((num_devices, *config.datasets.shapes.y_ctx[1:])),
+        x_tar=jnp.zeros((num_devices, *config.datasets.shapes.x_tar[1:])),
+        mask_ctx=jnp.zeros((num_devices, *config.datasets.shapes.mask_ctx[1:])),
+        mask_tar=jnp.zeros((num_devices, *config.datasets.shapes.mask_tar[1:])),
         **config.model.get("init_kwargs", {}),
     )
 
@@ -132,31 +132,31 @@ def main(config, output_dir):
     state = jax_utils.replicate(state)
 
     # Create dataset
-    if config.dataset.train.name == "RBF":
+    if config.datasets.train.name == "RBF":
         train_sampler = GPSampler(RBFKernel())
-    elif config.dataset.train.name == "Matern":
+    elif config.datasets.train.name == "Matern":
         train_sampler = GPSampler(Matern52Kernel())
-    elif config.dataset.train.name == "Periodic":
+    elif config.datasets.train.name == "Periodic":
         train_sampler = GPSampler(PeriodicKernel())
     else:
-        raise ValueError(f"Unknown train dataset: {config.dataset.train.name}")
+        raise ValueError(f"Unknown train dataset: {config.datasets.train.name}")
 
-    if config.dataset.valid.name == "RBF":
+    if config.datasets.valid.name == "RBF":
         valid_sampler = GPSampler(RBFKernel())
-    elif config.dataset.valid.name == "Matern":
+    elif config.datasets.valid.name == "Matern":
         valid_sampler = GPSampler(Matern52Kernel())
-    elif config.dataset.valid.name == "Periodic":
+    elif config.datasets.valid.name == "Periodic":
         valid_sampler = GPSampler(PeriodicKernel())
     else:
-        raise ValueError(f"Unknown valid dataset: {config.dataset.valid.name}")
+        raise ValueError(f"Unknown valid dataset: {config.datasets.valid.name}")
 
-    train_batch_size = config.dataset.train.batch_size
-    valid_batch_size = config.dataset.valid.batch_size
+    train_batch_size = config.datasets.train.batch_size
+    valid_batch_size = config.datasets.valid.batch_size
 
     valid_batch = shard_batch(valid_sampler.sample(random.PRNGKey(19), batch_size=valid_batch_size), num_devices)
 
     # Setup output directory
-    link_output_dir(output_dir, subnames=(config.model.name, config.dataset.train.name, config.dataset.valid.name))
+    link_output_dir(output_dir, subnames=(config.model.name, config.datasets.train.name, config.datasets.valid.name))
 
     # Build steps
     train_step = get_train_step(model, **config.model.get("train_kwargs", {}))
