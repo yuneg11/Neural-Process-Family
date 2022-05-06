@@ -42,7 +42,7 @@ class CNPBase(NPF):
         xy = jnp.concatenate((x, y), axis=-1)                                                       # [batch, (*model), point, x_dim + y_dim]
         xy, shape = F.flatten(xy, start=0, stop=-2, return_shape=True)                              # [batch x (*model), point, x_dim + y_dim]
         r_i = self.encoder(xy)                                                                      # [batch x (*model), point, r_dim]
-        r_i = F.unflatten(xy, shape, axis=0)                                                        # [batch, (*model), point, r_dim]
+        r_i = F.unflatten(r_i, shape, axis=0)                                                        # [batch, (*model), point, r_dim]
         return r_i                                                                                  # [batch, (*model), point, r_dim]
 
     def _aggregate(

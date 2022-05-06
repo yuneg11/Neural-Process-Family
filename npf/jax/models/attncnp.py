@@ -48,7 +48,7 @@ class AttnCNPBase(CNPBase):
         r_i = self.encoder(xy)                                                                      # [batch x (*model), point, r_dim]
         if self.self_attention is not None:
             r_i = self.self_attention(r_i, mask=mask)                                               # [batch x (*model), point, r_dim]
-        # r_i = F.unflatten(xy, shape, axis=0)                                                        # [batch, (*model), point, r_dim]
+        # r_i = F.unflatten(r_i, shape, axis=0)                                                        # [batch, (*model), point, r_dim]
         return r_i                                                                                  # [batch, (*model), point, r_dim]
 
     def _aggregate(
@@ -60,16 +60,16 @@ class AttnCNPBase(CNPBase):
     ) -> Array[B, ([M],), T, R]:
 
         # TODO: Temporary fix before implementing more efficient attention module
-        # q_i, shape = F.flatten(x_tar,   start=0, stop=-2, return_shape=True)                        # [batch x (*model), target,  x_dim]
-        # k_i        = F.flatten(x_ctx,   start=0, stop=-2)                                           # [batch x (*model), context, x_dim]
-        # r_i_ctx    = F.flatten(r_i_ctx, start=0, stop=-2)                                           # [batch x (*model), context, r_dim]
-        q_i, k_i = x_tar, x_ctx
+        # r_i_q, shape = F.flatten(x_tar,   start=0, stop=-2, return_shape=True)                    # [batch x (*model), target,  x_dim]
+        # r_i_k        = F.flatten(x_ctx,   start=0, stop=-2)                                       # [batch x (*model), context, x_dim]
+        # r_i_ctx    = F.flatten(r_i_ctx, start=0, stop=-2)                                         # [batch x (*model), context, r_dim]
+        r_i_q, r_i_k = x_tar, x_ctx
 
         if self.transform_qk is not None:
-            q_i, k_i = self.transform_qk(q_i), self.transform_qk(k_i)                               # [batch x (*model), target, qk_dim], [batch x (*model), context, qk_dim]
+            r_i_q, r_i_k = self.transform_qk(r_i_q), self.transform_qk(r_i_k)                       # [batch x (*model), target, qk_dim], [batch x (*model), context, qk_dim]
 
-        r_ctx = self.cross_attention(q_i, k_i, r_i_ctx, mask=mask_ctx)                              # [batch x (*model), target, r_dim]
-        # r_ctx = F.unflatten(r_ctx, shape, axis=0)                                                   # [batch, (*model), target, r_dim]
+        r_ctx = self.cross_attention(r_i_q, r_i_k, r_i_ctx, mask=mask_ctx)                          # [batch x (*model), target, r_dim]
+        # r_ctx = F.unflatten(r_ctx, shape, axis=0)                                                 # [batch, (*model), target, r_dim]
         return r_ctx                                                                                # [batch, (*model), target, r_dim]
 
 

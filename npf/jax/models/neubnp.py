@@ -66,22 +66,17 @@ class NeuBNPMixin(nn.Module):
         mask_tar = F.flatten(mask_tar, start=1)                                                     # [batch, target]
 
         # Algorithm
-        s_x_ctx    = jnp.repeat(x_ctx,    num_samples, axis=0)                                      # [batch x sample, context, x_dim]
-        s_x_tar    = jnp.repeat(x_tar,    num_samples, axis=0)                                      # [batch x sample, target,  x_dim]
-        s_mask_ctx = jnp.repeat(mask_ctx, num_samples, axis=0)                                      # [batch x sample, context]
-        s_mask_tar = jnp.repeat(mask_tar, num_samples, axis=0)                                      # [batch x sample, target]
+        w_ctx = self._sample_weight(mask_ctx, num_samples)                                          # [batch, sample, context, 1]
 
         r_i_ctx = self._encode(x_ctx, y_ctx, mask_ctx)                                              # [batch, context, r_dim]
-
-        w_ctx = self._sample_weight(mask_ctx, num_samples)                                          # [batch, sample, context, 1]
         s_r_i_ctx = F.repeat_axis(r_i_ctx, num_samples, axis=1)                                     # [batch, sample, context, r_dim]
-        b_r_i_ctx = F.flatten(s_r_i_ctx * w_ctx, start=0, stop=2)                                   # [batch x sample, context, r_dim]
+        b_r_i_ctx = s_r_i_ctx * w_ctx                                                               # [batch, sample, context, r_dim]
 
-        b_r_ctx = self._aggregate(s_x_tar, s_x_ctx, b_r_i_ctx, s_mask_ctx)                          # [batch x sample, target, r_dim]
-        mu, sigma = self._decode(s_x_tar, b_r_ctx, s_mask_tar)                                      # [batch x sample, target, y_dim] x 2
+        s_x_tar = F.repeat_axis(x_tar, num_samples, axis=1)                                         # [batch, sample, target,  x_dim]
+        s_x_ctx = F.repeat_axis(x_ctx, num_samples, axis=1)                                         # [batch, sample, context, x_dim]
 
-        mu    = F.unflatten(mu,    w_ctx.shape[:2], axis=0)                                         # [batch, sample, target, y_dim]
-        sigma = F.unflatten(sigma, w_ctx.shape[:2], axis=0)                                         # [batch, sample, target, y_dim]
+        b_r_ctx = self._aggregate(s_x_tar, s_x_ctx, b_r_i_ctx, mask_ctx)                            # [batch x sample, target, r_dim]
+        mu, sigma = self._decode(s_x_tar, b_r_ctx, mask_tar)                                        # [batch x sample, target, y_dim] x 2
 
         # Unflatten and mask
         mu    = F.masked_fill(mu,    mask_tar, fill_value=0.,   non_mask_axis=(1, -1))              # [batch, sample, target, y_dim]
@@ -150,12 +145,12 @@ class NeuBNPMixin(nn.Module):
         # TODO: Handle the situation where the number of context are different from the number of target
         assert mask_ctx.shape == mask_tar.shape, "Currently, only support context and target from the same array."
 
-        mask_ex_tar = F.flatten(mask_tar & (~mask_ctx), start=1)                                    # [batch, point (= context = target)]
-        w_ctx = F.unflatten(w_ctx[..., 0], ll.shape[2:], axis=2)                                    # [batch, sample, point (= context)]
+        mask_ex_tar = mask_tar & (~mask_ctx)                                                        # [batch, *point (= *context = *target)]
+        w_ctx = F.unflatten(w_ctx[..., 0], ll.shape[2:], axis=2)                                    # [batch, sample, *point (= *context)]
 
         if as_mixture:
-            ll_tar = F.logmeanexp(ll,         axis=-2)                                              # [batch, point]
-            ll_ctx = F.logmeanexp(ll * w_ctx, axis=-2)                                              # [batch, point]
+            ll_tar = F.logmeanexp(ll,         axis=1)                                               # [batch, *point]
+            ll_ctx = F.logmeanexp(ll * w_ctx, axis=1)                                               # [batch, *point]
 
             ll_tar = F.masked_sum(ll_tar, mask_ex_tar, axis=-1)                                     # [batch]
             ll_ctx = F.masked_sum(ll_ctx, mask_ctx,    axis=-1)                                     # [batch]
@@ -231,7 +226,7 @@ class AttnNeuBNP:
             transform_qk = MLP(hidden_features=transform_qk_dims, out_features=r_dim, last_activation=False)
         else:
             transform_qk = None
-            
+
         cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=ca_heads)
         decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
 
