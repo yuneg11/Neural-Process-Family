@@ -4,6 +4,7 @@ from jax import numpy as jnp
 from flax import linen as nn
 
 from .cnp import CNPBase
+from .. import functional as F
 from ..modules import (
     MLP,
     MultiheadAttention,
@@ -36,32 +37,40 @@ class AttnCNPBase(CNPBase):
 
     def _encode(
         self,
-        x:    Array[B, P, X],
-        y:    Array[B, P, Y],
+        x:    Array[B, ([M],), P, X],
+        y:    Array[B, ([M],), P, Y],
         mask: Array[B, P],
-    ) -> Array[B, P, R]:
+    ) -> Array[B, ([M],), P, R]:
 
-        xy = jnp.concatenate((x, y), axis=-1)                                                       # [batch, point, x_dim + y_dim]
-        r_i = self.encoder(xy)                                                                      # [batch, point, r_dim]
+        # TODO: Temporary fix before implementing more efficient attention module
+        xy = jnp.concatenate((x, y), axis=-1)                                                       # [batch, (*model), point, x_dim + y_dim]
+        # xy, shape = F.flatten(xy, start=0, stop=-2, return_shape=True)                              # [batch x (*model), point, x_dim + y_dim]
+        r_i = self.encoder(xy)                                                                      # [batch x (*model), point, r_dim]
         if self.self_attention is not None:
-            r_i = self.self_attention(r_i, mask=mask)                                               # [batch, point, r_dim]
-        return r_i                                                                                  # [batch, point, r_dim]
+            r_i = self.self_attention(r_i, mask=mask)                                               # [batch x (*model), point, r_dim]
+        # r_i = F.unflatten(xy, shape, axis=0)                                                        # [batch, (*model), point, r_dim]
+        return r_i                                                                                  # [batch, (*model), point, r_dim]
 
     def _aggregate(
         self,
-        x_tar:    Array[B, T, X],
-        x_ctx:    Array[B, C, X],
-        r_i_ctx:  Array[B, C, R],
+        x_tar:    Array[B, ([M],), T, X],
+        x_ctx:    Array[B, ([M],), C, X],
+        r_i_ctx:  Array[B, ([M],), C, R],
         mask_ctx: Array[B, C],
-    ) -> Array[B, T, R]:
+    ) -> Array[B, ([M],), T, R]:
 
-        if self.transform_qk is None:
-            q_i, k_i = x_tar, x_ctx                                                                 # [batch, target, x_dim],  [batch, context, x_dim]
-        else:
-            q_i, k_i = self.transform_qk(x_tar), self.transform_qk(x_ctx)                           # [batch, target, qk_dim], [batch, context, qk_dim]
+        # TODO: Temporary fix before implementing more efficient attention module
+        # q_i, shape = F.flatten(x_tar,   start=0, stop=-2, return_shape=True)                        # [batch x (*model), target,  x_dim]
+        # k_i        = F.flatten(x_ctx,   start=0, stop=-2)                                           # [batch x (*model), context, x_dim]
+        # r_i_ctx    = F.flatten(r_i_ctx, start=0, stop=-2)                                           # [batch x (*model), context, r_dim]
+        q_i, k_i = x_tar, x_ctx
 
-        r_ctx = self.cross_attention(q_i, k_i, r_i_ctx, mask=mask_ctx)                              # [batch, target, r_dim]
-        return r_ctx                                                                                # [batch, target, r_dim]
+        if self.transform_qk is not None:
+            q_i, k_i = self.transform_qk(q_i), self.transform_qk(k_i)                               # [batch x (*model), target, qk_dim], [batch x (*model), context, qk_dim]
+
+        r_ctx = self.cross_attention(q_i, k_i, r_i_ctx, mask=mask_ctx)                              # [batch x (*model), target, r_dim]
+        # r_ctx = F.unflatten(r_ctx, shape, axis=0)                                                   # [batch, (*model), target, r_dim]
+        return r_ctx                                                                                # [batch, (*model), target, r_dim]
 
 
 class AttnCNP:
@@ -91,7 +100,7 @@ class AttnCNP:
             transform_qk = MLP(hidden_features=transform_qk_dims, out_features=r_dim, last_activation=False)
         else:
             transform_qk = None
-            
+
         cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=ca_heads)
         decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
 

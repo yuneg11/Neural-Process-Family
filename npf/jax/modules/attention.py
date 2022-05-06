@@ -11,10 +11,6 @@ __all__ = [
 ]
 
 
-def masked_fill(mask, a, fill):
-    return jax.lax.select(mask, a, jax.lax.broadcast(fill, a.shape))
-
-
 class MultiheadAttention(nn.Module):
     dim_out: int
     num_heads: int = 8
@@ -39,13 +35,15 @@ class MultiheadAttention(nn.Module):
 
         if mask is not None:
             mask = jnp.bool_(mask)
-            mask = jnp.stack([mask] * q.shape[-2], axis=-2)
-            mask = jnp.concatenate([mask] * self.num_heads, axis=0)
+            mask = jnp.expand_dims(mask, axis=-2)
+            # mask = jnp.tile(mask, (self.num_heads, *[1 for _ in range(1, mask.ndim)]))
+            mask = jnp.tile(mask, (self.num_heads, 1, 1))  # This only occurs in the NPF package
             if A_logits.ndim == 4:
                 mask = jnp.expand_dims(mask, axis=1)
-            # A = jax.nn.softmax(A_logits, where=mask, initial=0, axis=-1)  # TODO: Check below code can be replaced with this.
+
             A = jax.nn.softmax(jnp.where(mask, A_logits, -float('inf')), axis=-1)
             A = jnp.where(jnp.isnan(A), 0., A)
+
         else:
             A = jax.nn.softmax(A_logits, axis=-1)
 

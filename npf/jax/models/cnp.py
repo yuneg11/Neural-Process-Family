@@ -34,39 +34,45 @@ class CNPBase(NPF):
 
     def _encode(
         self,
-        x:    Array[B, P, X],
-        y:    Array[B, P, Y],
+        x:    Array[B, ([M],), P, X],
+        y:    Array[B, ([M],), P, Y],
         mask: Array[B, P],
-    ) -> Array[B, P, R]:
+    ) -> Array[B, ([M],), P, R]:
 
-        xy = jnp.concatenate((x, y), axis=-1)                                                       # [batch, point, x_dim + y_dim]
-        r_i = self.encoder(xy)                                                                      # [batch, point, r_dim]
-        return r_i                                                                                  # [batch, point, r_dim]
+        xy = jnp.concatenate((x, y), axis=-1)                                                       # [batch, (*model), point, x_dim + y_dim]
+        xy, shape = F.flatten(xy, start=0, stop=-2, return_shape=True)                              # [batch x (*model), point, x_dim + y_dim]
+        r_i = self.encoder(xy)                                                                      # [batch x (*model), point, r_dim]
+        r_i = F.unflatten(xy, shape, axis=0)                                                        # [batch, (*model), point, r_dim]
+        return r_i                                                                                  # [batch, (*model), point, r_dim]
 
     def _aggregate(
         self,
-        x_tar:    Array[B, T, X],
-        x_ctx:    Array[B, C, X],
-        r_i_ctx:  Array[B, C, R],
+        x_tar:    Array[B, ([M],), T, X],
+        x_ctx:    Array[B, ([M],), C, X],
+        r_i_ctx:  Array[B, ([M],), C, R],
         mask_ctx: Array[B, C],
-    ) -> Array[B, T, R]:
+    ) -> Array[B, ([M],), T, R]:
 
-        r_ctx = F.masked_mean(r_i_ctx, mask_ctx, axis=-2, mask_axis=(0, -2), keepdims=True)         # [batch, 1,      r_dim]
-        r_ctx = jnp.repeat(r_ctx, x_tar.shape[-2], axis=-2)                                         # [batch, target, r_dim]
-        return r_ctx                                                                                # [batch, target, r_dim]
+        r_ctx = F.masked_mean(r_i_ctx, mask_ctx, axis=-2, mask_axis=(0, -2), keepdims=True)         # [batch, (*model), 1,      r_dim]
+        r_ctx = jnp.repeat(r_ctx, x_tar.shape[-2], axis=-2)                                         # [batch, (*model), target, r_dim]
+        return r_ctx                                                                                # [batch, (*model), target, r_dim]
 
     def _decode(
         self,
-        x_tar:    Array[B, T, X],
-        r_ctx:    Array[B, T, R],
+        x_tar:    Array[B, ([M],), T, X],
+        r_ctx:    Array[B, ([M],), T, R],
         mask_tar: Array[B, T],
-    ) -> Tuple[Array[B, T, Y], Array[B, T, Y]]:
+    ) -> Tuple[Array[B, ([M],), T, Y], Array[B, ([M],), T, Y]]:
 
-        query = jnp.concatenate((x_tar, r_ctx), axis=-1)                                            # [batch, target, x_dim + r_dim]
-        mu_log_sigma = self.decoder(query)                                                          # [batch, target, y_dim x 2]
-        mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, target, y_dim] x 2
-        sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma)                      # [batch, target, y_dim]
-        return mu, sigma                                                                            # [batch, target, y_dim] x 2
+        query = jnp.concatenate((x_tar, r_ctx), axis=-1)                                            # [batch, (*model), target, x_dim + r_dim]
+
+        query, shape = F.flatten(query, start=0, stop=-2, return_shape=True)                        # [batch x (*model), target, x_dim + y_dim]
+        mu_log_sigma = self.decoder(query)                                                          # [batch x (*model), target, y_dim x 2]
+        mu_log_sigma = F.unflatten(mu_log_sigma, shape, axis=0)                                     # [batch, (*model), target, y_dim x 2]
+
+        mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, (*model), target, y_dim] x 2
+        sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma)                      # [batch, (*model), target, y_dim]
+        return mu, sigma                                                                            # [batch, (*model), target, y_dim] x 2
 
     @nn.compact
     def __call__(

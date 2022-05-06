@@ -172,18 +172,13 @@ class BNPMixin(nn.Module):
         b_mu, b_sigma = self._bootstrap(x_ctx, y_ctx, mask_ctx, num_samples)                        # [batch, sample, context, y_dim] x 2
         res_x_ctx, res_y_ctx = self._residual_sample(x_ctx, y_ctx, b_mu, b_sigma, mask_ctx)         # [batch, sample, context, x_dim], [batch, sample, context, y_dim]
 
-        shape_res = res_x_ctx.shape[0:2]
-        res_x_ctx = F.flatten(res_x_ctx, start=0, stop=2)                                           # [batch x sample, context, x_dim]
-        res_y_ctx = F.flatten(res_y_ctx, start=0, stop=2)                                           # [batch x sample, context, x_dim]
-        s_x_tar    = jnp.repeat(x_tar,    num_samples, axis=0)                                      # [batch x sample, target,  x_dim]
-        s_mask_ctx = jnp.repeat(mask_ctx, num_samples, axis=0)                                      # [batch x sample, context]
+        s_x_tar = F.repeat_axis(x_tar, num_samples, axis=1)                                         # [batch, sample, target, x_dim]
 
         r_i_ctx = self._encode(x_ctx, y_ctx, mask_ctx)                                              # [batch, context, r_dim]
         r_ctx = self._aggregate(x_tar, x_ctx, r_i_ctx, mask_ctx)                                    # [batch, target,  r_dim]
 
-        res_r_i_ctx = self._encode(res_x_ctx, res_y_ctx, s_mask_ctx)                                # [batch x sample, context, r_dim]
-        res_r_ctx = self._aggregate(s_x_tar, res_x_ctx, res_r_i_ctx, s_mask_ctx)                    # [batch x sample, target,  r_dim]
-        res_r_ctx = F.unflatten(res_r_ctx, shape_res, axis=0)                                       # [batch, sample, target, r_dim]
+        res_r_i_ctx = self._encode(res_x_ctx, res_y_ctx, mask_ctx)                                  # [batch, sample, context, r_dim]
+        res_r_ctx = self._aggregate(s_x_tar, res_x_ctx, res_r_i_ctx, mask_ctx)                      # [batch, sample, target,  r_dim]
 
         mu, sigma = self._adaptation_decode(x_tar, r_ctx, res_r_ctx, mask_tar)                      # [batch, sample, target, y_dim] x 2
 

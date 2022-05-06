@@ -124,7 +124,8 @@ def process_mask(
     return mask
 
 
-@partial(jax.jit, static_argnames=("start", "stop", "return_shape"))
+# TODO: Support jit
+# @partial(jax.jit, static_argnames=("start", "stop", "return_shape"))
 def flatten(a, start: Optional[int] = None, stop: Optional[int] = None, return_shape: bool = False):
     """
     Flatten an array.
@@ -133,7 +134,7 @@ def flatten(a, start: Optional[int] = None, stop: Optional[int] = None, return_s
     start = 0      if start is None else start if start >= 0 else start + a.ndim
     stop  = a.ndim if stop  is None else stop  if stop  >= 0 else stop  + a.ndim
 
-    original_shape = a.shape[start:stop]
+    original_shape = tuple(a.shape[start:stop])
 
     if len(original_shape) != 1:
         flatten_size = math.prod(original_shape)
@@ -145,7 +146,8 @@ def flatten(a, start: Optional[int] = None, stop: Optional[int] = None, return_s
         return a
 
 
-@partial(jax.jit, static_argnames=("shape", "axis"))
+# TODO: Support jit
+# @partial(jax.jit, static_argnames=("shape", "axis"))
 def unflatten(a, shape, axis: int):
     """
     Unflatten an array.
