@@ -102,7 +102,7 @@ class AttnNP:
         common_encoder_dims: Optional[Sequence[int]] = None,
         latent_encoder_dims: Optional[Sequence[int]] = (128, 128),
         determ_encoder_dims: Optional[Sequence[int]] = (128, 128, 128, 128, 128),
-        decoder_dims: Sequence[int] = (128, 128, 128, 128),
+        decoder_dims: Sequence[int] = (128, 128, 128),
         loss_type: str = "vi",
     ):
 
