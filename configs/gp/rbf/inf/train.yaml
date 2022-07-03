@@ -1,0 +1,5 @@
+seed: 3
+num_epochs: 1000
+num_step_per_epoch: 100
+valid_every: 1
+save_every: 5

@@ -11,12 +11,10 @@ from ..modules import (
     MultiheadSelfAttention,
 )
 
-
 __all__ = [
     "AttnCNPBase",
     "AttnCNP",
 ]
-
 
 class AttnCNPBase(CNPBase):
     """
@@ -28,7 +26,7 @@ class AttnCNPBase(CNPBase):
     transform_qk:    Optional[nn.Module] = None
     cross_attention: nn.Module = None
     decoder:         nn.Module = None
-    min_sigma:       float = 0.1
+    min_sigma:       float = 0.0
 
     def __post_init__(self):
         super().__post_init__()
@@ -71,7 +69,6 @@ class AttnCNPBase(CNPBase):
         r_ctx = self.cross_attention(r_i_q, r_i_k, r_i_ctx, mask=mask_ctx)                          # [batch x (*model), target, r_dim]
         # r_ctx = F.unflatten(r_ctx, shape, axis=0)                                                 # [batch, (*model), target, r_dim]
         return r_ctx                                                                                # [batch, (*model), target, r_dim]
-
 
 class AttnCNP:
     """

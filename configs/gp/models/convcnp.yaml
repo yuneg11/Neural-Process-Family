@@ -1,0 +1,7 @@
+name: ConvCNP
+kwargs:
+    x_min: -2.0
+    x_max: +2.0
+train_kwargs: {}
+valid_kwargs: {}
+test_kwargs: {}

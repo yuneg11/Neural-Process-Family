@@ -1,0 +1,4 @@
+name: RBF
+sigma_eps: 0.02
+max_length: 0.6
+max_scale: 1.0

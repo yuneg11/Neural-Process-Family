@@ -8,7 +8,6 @@ import numpy as np
 import jax
 from jax import numpy as jnp
 
-
 __all__ = [
     "process_mask_axis",
     "is_maskable",
@@ -22,15 +21,14 @@ __all__ = [
     "masked_std",
     "masked_min",
     "masked_max",
+    "masked_softmax",
     "repeat_axis",
     "logsumexp",
     "logmeanexp",
 ]
 
-
 Axis = Union[int, Sequence[int]]
 OptAxis = Optional[Axis]
-
 
 def process_mask_axis(a_ndim, mask_ndim, mask_axis: OptAxis = None, non_mask_axis: OptAxis = None):
     """
@@ -69,7 +67,6 @@ def process_mask_axis(a_ndim, mask_ndim, mask_axis: OptAxis = None, non_mask_axi
 
     return tuple(mask_axis), tuple(non_mask_axis)
 
-
 @partial(jax.jit, static_argnames=("mask_axis", "non_mask_axis"))
 def is_maskable(
     a,
@@ -90,7 +87,6 @@ def is_maskable(
         maskable = False
 
     return maskable
-
 
 @partial(jax.jit, static_argnames=("mask_axis", "non_mask_axis"))
 def process_mask(
@@ -123,7 +119,6 @@ def process_mask(
     mask = jnp.expand_dims(mask, axis=non_mask_axis)
     return mask
 
-
 # TODO: Support jit
 # @partial(jax.jit, static_argnames=("start", "stop", "return_shape"))
 def flatten(a, start: Optional[int] = None, stop: Optional[int] = None, return_shape: bool = False):
@@ -144,7 +139,6 @@ def flatten(a, start: Optional[int] = None, stop: Optional[int] = None, return_s
         return a, original_shape
     else:
         return a
-
 
 # TODO: Support jit
 # @partial(jax.jit, static_argnames=("shape", "axis"))
@@ -179,7 +173,6 @@ def unflatten(a, shape, axis: int):
 
     return a
 
-
 @partial(jax.jit, static_argnames=("n",))
 def get_mask(n: int, start: int = 0, stop: int = None):
     """
@@ -189,7 +182,6 @@ def get_mask(n: int, start: int = 0, stop: int = None):
     stop = n if stop is None else stop
     mask = (start <= np.arange(n)) & (np.arange(n) < stop)
     return mask
-
 
 def masked_fill(
     a,
@@ -205,7 +197,6 @@ def masked_fill(
     mask = process_mask(a, mask, mask_axis, non_mask_axis)
     a = jnp.where(mask, a, fill_value)
     return a
-
 
 def masked_sum(
     a,
@@ -223,7 +214,6 @@ def masked_sum(
     a = jnp.sum(a, axis=axis, keepdims=keepdims, where=mask)
     return a
 
-
 def masked_mean(
     a,
     mask,
@@ -239,7 +229,6 @@ def masked_mean(
     mask = process_mask(a, mask, mask_axis, non_mask_axis)
     a = jnp.mean(a, axis=axis, keepdims=keepdims, where=mask)
     return a
-
 
 def masked_std(
     a,
@@ -258,7 +247,6 @@ def masked_std(
     a = jnp.std(a, axis=axis, ddof=ddof, keepdims=keepdims, where=mask)
     return a
 
-
 def masked_min(
     a,
     mask,
@@ -274,7 +262,6 @@ def masked_min(
     mask = process_mask(a, mask, mask_axis, non_mask_axis)
     a = jnp.min(a, axis=axis, keepdims=keepdims, where=mask, initial=jnp.inf)
     return a
-
 
 def masked_max(
     a,
@@ -292,6 +279,18 @@ def masked_max(
     a = jnp.max(a, axis=axis, keepdims=keepdims, where=mask, initial=-jnp.inf)
     return a
 
+def masked_softmax(
+        a,
+        mask,
+        axis: OptAxis = None,
+        mask_axis: OptAxis = None,
+        non_mask_axis: OptAxis = None,
+        keepdims: bool = False,
+    ):
+
+    mask = process_mask(a, mask, mask_axis, non_mask_axis)
+    a = jax.nn.softmax(a, axis=axis, where=mask, initial=-jnp.inf)
+    return a
 
 def repeat_axis(a, repeats: Union[int, Sequence[int]], axis: Axis):
     """
@@ -309,9 +308,7 @@ def repeat_axis(a, repeats: Union[int, Sequence[int]], axis: Axis):
         a = jnp.repeat(a, repeats=r, axis=d)
     return a
 
-
 logsumexp = jax.nn.logsumexp
-
 
 def logmeanexp(a, axis: Axis = None, b = None, keepdims: bool = False, return_sign: bool = False):
     """

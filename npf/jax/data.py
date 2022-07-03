@@ -1,165 +1,254 @@
-import math
-from functools import partial
-from collections import namedtuple
+"""
+This is a JAX version of [torch.utils.data.DataLoader](https://pytorch.org/docs/stable/data.html).
+This implementation is very early and rough version of mimicing torch.utils.data.DataLoader.
+It is not well-tested and should be improved in the future.
+It does not guarantee to work same as torch.utils.data.DataLoader.
+"""
 
-import numpy as np
+from typing import (
+    Any,
+    Union,
+    Optional,
+)
+
+import math
+import itertools
 
 import jax
-import jax.numpy as jnp
 from jax import random
-from jax.random import multivariate_normal, t, randint, uniform
+from jax import numpy as jnp
+from jax import tree_util
+from jax._src.prng import PRNGKeyArray
 
-from . import functional as F
+from flax import jax_utils
 
+Array = Any
+KeyArray = Union[Array, PRNGKeyArray]
 
-__all__ = [
-    "GPPriorSampler",
-    "GPSampler",
-    "RBFKernel",
-    "PeriodicKernel",
-    "Matern52Kernel",
-]
+class DataLoader:
+    def __init__(
+        self,
+        dataset,
+        batch_size: Optional[int] = 1,
+        shuffle: bool = False,
+        sampler: Optional[Any] = None,        # FIXME: Improve typing
+        batch_sampler: Optional[Any] = None,  # FIXME: Improve typing
+        collate_fn: Optional[Any] = None,     # FIXME: Improve typing
+        drop_last: bool = False,
+        key: Optional[KeyArray] = None,
+        *,
+        prefetch_factor: Optional[int] = 2,
+        prefetch_devices: Optional[Any] = None,  # FIXME: Improve typing
+        persistent_workers: bool = False,
+    ):
 
+        if batch_sampler is not None:
+            raise NotImplementedError("batch_sampler is not supported yet")
 
-GPData = namedtuple("GPData", (
-    "x",
-    "y",
-    "x_ctx",
-    "x_tar",
-    "y_ctx",
-    "y_tar",
-    "mask",
-    "mask_ctx",
-    "mask_tar",
-))
+        if persistent_workers is True:
+            raise NotImplementedError("persistent_workers is not supported yet")
 
+        if batch_size is None and drop_last:
+            raise ValueError("batch_size must be specified if drop_last is True")
 
-class GPPriorSampler:
-    def __init__(self, key, kernel, t_noise = None):
-        self.kernel = kernel
-        self.t_noise = t_noise
+        if sampler is not None and shuffle:
+            raise ValueError("sampler option is mutually exclusive with shuffle")
+
+        if shuffle and key is None:
+            raise ValueError("shuffle requires a key")
+
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.sampler = sampler
+        self.batch_sampler = batch_sampler
+        self.collate_fn = collate_fn
+        self.drop_last = drop_last
         self.key = key
+        self.prefetch_factor = prefetch_factor
+        self.prefetch_devices = prefetch_devices
+        self.persistent_workers = persistent_workers
 
-    def sample(self, x):
-        key, subkey = jax.random.split(self.key, 2)
-        cov = self.kernel(subkey, x)
-        mean = jnp.zeros((1,x.shape[1]))
-
-        key, subkey = jax.random.split(key,2)
-
-        y = multivariate_normal(subkey, mean, cov)
-        y = jnp.expand_dims(y, axis = -1)
-
-        if self.t_noise is not None:
-            key, subkey = jax.random.split(key, 2)
-            y += self.t_noise * t(subkey, shape = y.shape)
-
-        return y
-
-
-class GPSampler:
-    def __init__(self, kernel, t_noise=None):
-        self.kernel = kernel
-        self.t_noise = t_noise
-
-    @partial(jax.jit, static_argnames=("self", "batch_size", "num_ctx", "num_tar", "max_num_points", "x_range"))
-    def sample(self, key, batch_size=16, num_ctx=None, num_tar=None, max_num_points=50, x_range=(-2, 2)):
-        keys = random.split(key, 6)
-        shape = (batch_size, max_num_points, 1)
-
-        if num_ctx is None:
-            num_ctx = random.randint(keys[0], shape=(batch_size,), minval=3, maxval=max_num_points - 2)
+        if hasattr(self.dataset, "__len__") and hasattr(self.dataset, "__getitem__"):
+            self.is_map_dataset = True
+        elif hasattr(self.dataset, "__iter__"):
+            self.is_map_dataset = False
         else:
-            num_ctx = np.full(shape=(batch_size,), fill_value=num_ctx)
+            raise ValueError('dataset should implement both ("__len__", "__getitem__") or "__iter__".')
 
-        if num_tar is None:
-            num_tar = random.randint(keys[1], shape=(batch_size,), minval=3, maxval=max_num_points - num_ctx + 1)
-        else:
-            num_tar = np.full(shape=(batch_size,), fill_value=num_tar)
+        if not self.is_map_dataset and shuffle:
+            raise NotImplementedError("shuffle is not supported for IterableDataset")
 
-        num_points = num_ctx + num_tar
+        if self.collate_fn is None:
+            self.collate_fn = default_collate
 
-        mask     = jax.vmap(lambda _p:     F.get_mask(max_num_points, start=0,  stop=_p))(num_points)
-        mask_ctx = jax.vmap(lambda _c:     F.get_mask(max_num_points, start=0,  stop=_c))(num_ctx)
-        mask_tar = jax.vmap(lambda _c, _p: F.get_mask(max_num_points, start=_c, stop=_p))(num_ctx, num_points)
+        self._key = key
+        self._cache_iter = None
 
-        x = x_range[0] + (x_range[1] - x_range[0]) * uniform(keys[2], shape=shape)
-
-        mean = jnp.zeros(shape[:-1])
-        cov = self.kernel(keys[3], x)
-
-        y = random.multivariate_normal(keys[4], mean, cov).reshape(shape)
-
-        if self.t_noise is not None:
-            if self.t_noise == -1:
-                t_noise = 0.15 * random.uniform(keys[5], shape=y.shape)
+    def __len__(self):
+        if self.is_map_dataset:
+            if self.batch_size is None:
+                return len(self.dataset)
+            elif self.drop_last:
+                return math.floor(len(self.dataset) / self.batch_size)
             else:
-                t_noise = self.t_noise
-            y += t_noise * random.t(keys[6], shape=y.shape)
+                return math.ceil(len(self.dataset) / self.batch_size)
+        else:
+            raise RuntimeError("__len__ is not supported for IterableDataset")
 
-        batch = GPData(
-            x     = F.masked_fill(x, mask,     fill_value=0., non_mask_axis=-1),
-            y     = F.masked_fill(y, mask,     fill_value=0., non_mask_axis=-1),
-            x_ctx = F.masked_fill(x, mask_ctx, fill_value=0., non_mask_axis=-1),
-            y_ctx = F.masked_fill(y, mask_ctx, fill_value=0., non_mask_axis=-1),
-            x_tar = F.masked_fill(x, mask_tar, fill_value=0., non_mask_axis=-1),
-            y_tar = F.masked_fill(y, mask_tar, fill_value=0., non_mask_axis=-1),
-            mask     = mask,
-            mask_ctx = mask_ctx,
-            mask_tar = mask_tar,
-        )
+    def __iter__(self):
+        if self._key is not None:
+            _, self._key = random.split(self._key)
+
+        if self.is_map_dataset:
+            data_len = len(self.dataset)
+
+            idxs = jnp.arange(data_len, dtype=int)
+
+            if self.shuffle:
+                idxs = random.permutation(self._key, idxs)
+
+            if self.batch_size is None:
+                self._iter = (self.dataset[i] for i in idxs)
+            else:
+                iter_len = data_len // self.batch_size
+                if data_len % self.batch_size == 0:
+                    batch_range = range(0, data_len, self.batch_size)
+                elif self.drop_last:
+                    batch_range = range(0, iter_len * self.batch_size, self.batch_size)
+                else:
+                    batch_range = range(0, (iter_len + 1) * self.batch_size, self.batch_size)
+
+                self._iter = (
+                    self.collate_fn(self.dataset[idxs[batch_start:batch_start + self.batch_size]])
+                    for batch_start in batch_range
+                )
+        else:
+            if self.batch_size:
+                _dataset_iter = iter(self.dataset)
+
+                self._iter = (
+                    self.collate_fn(list(itertools.islice(_dataset_iter, self.batch_size)))
+                    for _ in itertools.count()
+                )
+            else:
+                # TODO: temporary solution
+                self._iter = (self.collate_fn(batch) for batch in self.dataset)
+
+        if self.prefetch_factor is not None:
+            if self.prefetch_devices is None:
+                self.prefetch_devices = jax.local_devices()
+            if len(self.prefetch_devices) > 1 and jax.default_backend() == "gpu":
+                self._iter = jax_utils.prefetch_to_device(
+                    self._iter, size=self.prefetch_factor, devices=self.prefetch_devices,
+                )
+
+        return self
+
+    def __next__(self):
+        if self._iter is None:
+            raise RuntimeError("__iter__ is not called yet")
+
+        try:
+            batch = next(self._iter)
+        except StopIteration:
+            self._iter = None
+            raise StopIteration
 
         return batch
 
+# Sampler
 
-class RBFKernel:
-    def __init__(self, sigma_eps=2e-2, max_length=0.6, max_scale=1.0):
-        self.sigma_eps = sigma_eps
-        self.max_length = max_length
-        self.max_scale = max_scale
+# class Sampler:
+#     def __init__(self, num_data):
+#         self.num_data = num_data
 
-    def __call__(self, key, x):
-        subkey_1, subkey_2 = random.split(key)
-        length = 0.1 + (self.max_length - 0.1) * uniform(subkey_1, shape=(x.shape[0], 1, 1, 1))
-        scale  = 0.1 + (self.max_scale  - 0.1) * uniform(subkey_2, shape=(x.shape[0], 1, 1))
+#     def __iter__(self):
+#         raise NotImplementedError
 
-        dist = (jnp.expand_dims(x, axis=-2) - jnp.expand_dims(x, axis=-3)) / length
-        cov = jnp.power(scale, 2) * jnp.exp(-0.5 * jnp.power(dist, 2).sum(axis=-1)) + self.sigma_eps ** 2 * jnp.eye(x.shape[-2])
+#     # def __len__(self):
+#     #     pass
 
-        return cov
+# class RandomSampler(Sampler):
+#     def __init__(self, num_data, key):
+#         super().__init__(num_data)
+#         self.key = key
 
+#     def __iter__(self):
+#         pass
 
-class Matern52Kernel:
-    def __init__(self, sigma_eps=2e-2, max_length=0.6, max_scale=1.0):
-        self.sigma_eps = sigma_eps
-        self.max_length = max_length
-        self.max_scale = max_scale
+# collate_fn
 
-    def __call__(self, key, x):
-        subkey_1, subkey_2 = random.split(key)
-        length = 0.1 + (self.max_length - 0.1) * uniform(subkey_1, shape=(x.shape[0], 1, 1, 1))
-        scale  = 0.1 + (self.max_scale  - 0.1) * uniform(subkey_2, shape=(x.shape[0], 1, 1))
+# TODO: Improve implementation
+def default_collate(batch):
+    num_elements = len(batch[0])
+    collated_batch = [
+        jax.lax.stop_gradient(jnp.stack([batch[j][i] for j in range(len(batch))], axis=0))
+        for i in range(num_elements)
+    ]
+    return collated_batch
 
-        dist = jnp.linalg.norm((jnp.expand_dims(x, axis=-2) - jnp.expand_dims(x, axis=-3)) / length, axis=-1)
-        cov = jnp.power(scale, 2) * (1 + math.sqrt(5.0) * dist + 5.0 / 3.0 * jnp.power(dist, 2)) * jnp.exp(-math.sqrt(5.0) * dist) + self.sigma_eps ** 2 * jnp.eye(x.shape[-2])
+# TODO: Improve implementation
+def get_shard_collate(num_replicas: Optional[int] = None, jit: bool = False):
+    if num_replicas is None:
+        num_replicas = jax.local_device_count()
 
-        return cov
+    def shard_batch(d):
+        batch_size = d.shape[0]
+        if batch_size % num_replicas != 0:
+            raise ValueError(
+                f"Batch size ({batch_size}) must be divisible by number of replicas ({num_replicas})"
+            )
+        return jnp.reshape(d, (num_replicas, batch_size // num_replicas, *d.shape[1:]))
 
+    def shard_collate(batch):
+        return tree_util.tree_map(shard_batch, batch)
 
-class PeriodicKernel:
-    def __init__(self, sigma_eps=2e-2, max_length=0.6, max_scale=1.0):
-        self.sigma_eps = sigma_eps
-        self.max_length = max_length
-        self.max_scale = max_scale
+    if jit:
+        return jax.jit(shard_collate)
+    else:
+        return shard_collate
 
-    def __call__(self, key, x):
-        subkey_0, subkey_1, subkey_2 = random.split(key, 3)
+# Dataset
 
-        p = 0.1 + 0.4 * uniform(subkey_0, shape=(x.shape[0], 1, 1))
-        length = 0.1 + (self.max_length - 0.1) * uniform(subkey_1, shape=(x.shape[0], 1, 1))
-        scale  = 0.1 + (self.max_scale  - 0.1) * uniform(subkey_2, shape=(x.shape[0], 1, 1))
+class BaseDataset:
+    pass
 
-        dist = jnp.expand_dims(x, axis=-2) - jnp.expand_dims(x, axis=-3)
-        cov = jnp.power(scale, 2) * jnp.exp(-2 * jnp.power((jnp.sin(math.pi * jnp.abs(dist).sum(axis=-1) / p) / length), 2)) + self.sigma_eps ** 2 * jnp.eye(x.shape[-2])
+class Dataset(BaseDataset):
+    def __init__(self):
+        pass
 
-        return cov
+    def __getitem__(self, index):
+        raise NotImplementedError
+
+    # def __len__(self):
+    #     pass
+
+class IterableDataset(BaseDataset):
+    def __init__(self):
+        pass
+
+    def __iter__(self):
+        raise NotImplementedError
+
+class ArrayDataset(Dataset):
+    def __init__(self, *arrays):
+        if len(arrays) == 0:
+            raise ValueError("ArrayDataset must contain at least one array")
+
+        data_len = len(arrays[0])
+
+        for array in arrays:
+            if not isinstance(array, jnp.ndarray):
+                raise ValueError("ArrayDataset only accepts numpy.ndarray")
+            if len(array) != data_len:
+                raise ValueError("ArrayDataset must contain arrays of the same length")
+
+        self.arrays = arrays
+        self.data_len = data_len
+
+    def __getitem__(self, index):
+        return tuple([array[index] for array in self.arrays])
+
+    def __len__(self):
+        return self.data_len

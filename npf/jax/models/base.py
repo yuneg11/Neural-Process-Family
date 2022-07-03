@@ -2,11 +2,9 @@ from ..typing import *
 
 from flax import linen as nn
 
-
 __all__ = [
     "NPF",
 ]
-
 
 class NPF(nn.Module):
     """
