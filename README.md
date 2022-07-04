@@ -1,6 +1,8 @@
 # Neural Process Family
 
-**This library is under construction.**
+**This library is in the early stages of development.**
+
+**PyTorch versions are not yet supported.**
 
 
 ## Installation
@@ -47,7 +49,7 @@ cd npf
 Then, you can run the experiment, for example:
 
 ```bash
-python scripts/jax/train.py -f configs/attnnp.yaml -lr 0.0001 --model.train_kwargs.num_latents 30
+python scripts/jax/train.py -f configs/gp/rbf/inf/anp.yaml -lr 0.0001 --model.train_kwargs.num_latents 30
 ```
 
 The output will be saved under `outs/` directory.
@@ -55,23 +57,143 @@ Details will be added in the future.
 
 ## Download or build datasets
 
+```bash
+python -m npf.jax.data.save \
+    --root <dataset-root> \
+    --dataset <dataset-name>
+```
+
+- `<dataset-root>`: The root path to save dataset. Default: `./datasets/`
+- `<dataset-name>`: The name of the dataset to save. See below sections for available datasets.
+
 ### Image datasets
 
+You should install `torch` and `torchvision` to download the datastes.
+You can find the details in the [download page](https://pytorch.org/get-started/locally/).
+
+For example,
+
 ```bash
-python -m npf.jax.data.save --root ./datasets --dataset mnist
+# CUDA 11.3
+conda install pytorch torchvision cudatoolkit=11.3 -c pytorch
 ```
+
+#### Available datasets
+
+- MNIST: `mnist`
+- CIFAR10: `cifar10`
+- CIFAR100: `cifar100`
+- CelebA: `celeba`
+- SVHN: `svhn`
+
+### Sim2Real datasets
+
+You should install `numba` and `wget` to simulate or download the datasets.
+
+```bash
+pip install numba wget
+```
+
+#### Available datasets
+
+- Lotka Volterra: `lotka_volterra`
+
+  TODO: See `npf.jax.data.save:save_lotka_volterra` for more detailed options.
 
 ## Models
 
-- CNP: Conditional Neural Process
-- NP: Neural Process
-- AttnCNP: Attentive Conditional Neural Process
-- AttnNP: Attentive Neural Process
-- ConvCNP: Convolutional Conditional Neural Process
-- ConvNP: Convolutional Neural Process
-- BNP: Bootstrapping Neural Process
-- AttnBNP: Attentive Bootstrapping Neural Process
+- **CNP**: Conditional Neural Process
+- **NP**: Neural Process
+- **CANP**: Conditional Attentive Neural Process
+- **ANP**: Attentive Neural Process
+- **BNP**: Bootstrapping Neural Process
+- **BANP**: Bootstrapping Attentive Neural Process
+- **NeuBNP**: Neural Bootstrapping Neural Process
+- **NeuBANP**: Neural Bootstrapping Attentive Neural Process
+- **ConvCNP**: Convolutional Conditional Neural Process
+- **ConvNP**: Convolutional Neural Process
 
+## Scripts
+
+### Train
+
+```bash
+python scripts/jax/train.py -f <config-file> [additional-options]
+```
+
+You can use your own config file or use the provided config files in the `configs` directory.
+For example, the following command will train a CNP model with learning rate of `0.0001` for `100` epochs:
+
+```bash
+python scripts/jax/train.py -f configs/gp/rbf/inf/anp.yaml \
+    -lr 0.0001 \
+    --train.num_epochs 100
+```
+
+You can see the help of the config file by using the following command:
+
+```bash
+python scripts/jax/train.py -f <config-file> --help
+```
+
+### Test
+
+```bash
+# From a trained model directory
+python scripts/jax/test.py -d <model-output-dir> [additional-options]
+
+# From a new config file and a trained model checkpoint
+python scripts/jax/test.py -f <config-file> -c <checkpoint-file-path> [additional-options]
+```
+
+You can directly test the trained model by specifying the output directory.
+For example:
+
+```bash
+python scripts/jax/test.py -d outs/CNP/Train/RBF/Inf/220704-181313-vweh
+```
+
+where `outs/CNP/Train/RBF/Inf/220704-181313-vweh` is the output directory of the trained model.
+
+You can also replace or add the test-specific configs from the config file using the `-tf / --test-config-file` option.
+For example:
+
+```bash
+python scripts/jax/test.py -d outs/CNP/Train/RBF/Inf/220704-181313-vweh \
+    -tf configs/gp/robust/matern.yaml
+```
+
+### Test Bayesian optimization
+
+```bash
+# From a trained model directory
+python scripts/jax/test_bo.py -d <model-output-dir> [additional-options]
+
+# From a new config file and a trained model checkpoint
+python scripts/jax/test_bo.py -f <config-file> -c <checkpoint-file-path> [additional-options]
+```
+
+Similar to above the `test` script, you can directly test the trained model by specifying the output directory.
+For example:
+
+```bash
+python scripts/jax/test_bo.py -d outs/CNP/Train/RBF/Inf/220704-181313-vweh
+```
+
+You can also replace or add the test-specific configs from the config file using the `-bf / --bo-config-file` option.
+For example:
+
+```bash
+python scripts/jax/test.py -d outs/CNP/Train/RBF/Inf/220704-181313-vweh \
+    -bf configs/gp/rbf/bo_config.yaml
+```
+
+<br>
+<br>
+<br>
+<br>
+
+## Appendix
 
 ## Datasets
 

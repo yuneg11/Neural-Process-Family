@@ -90,9 +90,8 @@ class ConvNPBase(NPF):
             jnp.expand_dims(x_grid, 1),
             z,
             jnp.expand_dims(mask_grid, 1),
-        )
+        )                                                                                            # [batch, latent, target, y_dim]
 
-        h = self.decoder(x_tar, x_grid, h, mask_grid)                                               # [batch, latent, target, y_dim]
         mu_log_sigma = nn.Dense(2 * y_ctx.shape[-1])(h)                                             # [batch, latent, target, y_dim x 2]
         mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, latent, target, y_dim] x 2
         sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma)                      # [batch, latent, target, y_dim]

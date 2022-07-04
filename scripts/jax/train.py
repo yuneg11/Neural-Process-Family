@@ -27,7 +27,7 @@ from npf.jax.models import (
     NP, ANP,
     BNP, BANP,
     NeuBNP, NeuBANP,
-    ConvCNP,
+    ConvCNP, ConvNP,
 )
 from npf.jax.data import get_shard_collate, build_dataloader
 
@@ -116,6 +116,7 @@ def main(config, output_dir):
         NeuBNP=NeuBNP,
         NeuBANP=NeuBANP,
         ConvCNP=ConvCNP,
+        ConvNP=ConvNP,
     )
 
     if config.model.name not in models:

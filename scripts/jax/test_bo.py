@@ -26,7 +26,7 @@ from npf.jax.models import (
     NP, ANP,
     BNP, BANP,
     NeuBNP, NeuBANP,
-    ConvCNP,
+    ConvCNP, ConvNP,
 )
 from npf.jax.data import build_gp_prior_dataset
 
@@ -105,6 +105,7 @@ def main(config, output_dir):
         NeuBNP=NeuBNP,
         NeuBANP=NeuBANP,
         ConvCNP=ConvCNP,
+        ConvNP=ConvNP,
     )
 
     if config.model.name not in models:

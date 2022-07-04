@@ -1,0 +1,5 @@
+datasets:  !include configs/image/svhn/datasets.yaml
+model:     !include configs/image/models/convnp.yaml
+optimizer: !include configs/image/optimizer.yaml
+train:     !include configs/image/svhn/train.yaml
+test:      !include configs/image/svhn/test.yaml
