@@ -21,13 +21,7 @@ from nxcl.config import load_config, save_config, add_config_arguments, ConfigDi
 from nxcl.experimental.utils import get_experiment_name, setup_logger, link_output_dir
 
 from npf.jax import functional as F
-from npf.jax.models import (
-    CNP, CANP,
-    NP, ANP,
-    BNP, BANP,
-    NeuBNP, NeuBANP,
-    ConvCNP, ConvNP,
-)
+from npf.jax import models
 from npf.jax.data import build_gp_prior_dataset
 
 from bayeso.gp import gp_kernel
@@ -94,29 +88,17 @@ def main(config, output_dir):
     key = random.PRNGKey(config.test_bo.seed)
 
     # Create model
-    models = dict(
-        Oracle=Oracle,
-        CNP=CNP,
-        CANP=CANP,
-        NP=NP,
-        ANP=ANP,
-        BNP=BNP,
-        BANP=BANP,
-        NeuBNP=NeuBNP,
-        NeuBANP=NeuBANP,
-        ConvCNP=ConvCNP,
-        ConvNP=ConvNP,
-    )
-
-    if config.model.name not in models:
+    if not hasattr(models, config.model.name) and config.model.name != "Oracle":
         raise ValueError(f"Unknown model: {config.model.name}")
 
-    model = models[config.model.name](
-        y_dim=config.datasets.shapes.y_ctx[-1],
-        **config.model.get("kwargs", {}),
-    )
-
-    if config.model.name != "Oracle":
+    if config.model.name == "Oracle":
+        raise NotImplementedError("Oracle is not implemented yet")
+        state = None
+    else:
+        model = getattr(models, config.model.name)(
+            y_dim=config.datasets.shapes.y_ctx[-1],
+            **config.model.get("kwargs", {}),
+        )
         state = checkpoints.restore_checkpoint(config.test_bo.checkpoint, target=None)
 
     # Create dataset

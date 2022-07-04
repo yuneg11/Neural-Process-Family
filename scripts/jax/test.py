@@ -20,13 +20,7 @@ from nxcl.rich import Progress
 from nxcl.config import load_config, save_config, add_config_arguments, ConfigDict
 from nxcl.experimental.utils import get_experiment_name, setup_logger, link_output_dir, AverageMeter
 
-from npf.jax.models import (
-    CNP, CANP,
-    NP, ANP,
-    BNP, BANP,
-    NeuBNP, NeuBANP,
-    ConvCNP, ConvNP,
-)
+from npf.jax import models
 from npf.jax.data import get_shard_collate, build_dataloader
 
 
@@ -72,23 +66,10 @@ def main(config, output_dir):
     key = random.PRNGKey(config.test.seed)
 
     # Create model
-    models = dict(
-        CNP=CNP,
-        CANP=CANP,
-        NP=NP,
-        ANP=ANP,
-        BNP=BNP,
-        BANP=BANP,
-        NeuBNP=NeuBNP,
-        NeuBANP=NeuBANP,
-        ConvCNP=ConvCNP,
-        ConvNP=ConvNP,
-    )
-
-    if config.model.name not in models:
+    if not hasattr(models, config.model.name):
         raise ValueError(f"Unknown model: {config.model.name}")
 
-    model = models[config.model.name](
+    model = getattr(models, config.model.name)(
         y_dim=config.datasets.shapes.y_ctx[-1],
         **config.model.get("kwargs", {}),
     )

@@ -1,0 +1,5 @@
+datasets:  !include configs/sim2real/lotka_volterra/datasets.yaml
+model:     !include configs/sim2real/models/convbnp.yaml
+optimizer: !include configs/sim2real/optimizer.yaml
+train:     !include configs/sim2real/lotka_volterra/train.yaml
+test:      !include configs/sim2real/lotka_volterra/test.yaml

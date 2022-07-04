@@ -54,13 +54,13 @@ class ConvCNPBase(NPF):
     ) -> Tuple[Array[B, [T], Y], Array[B, [T], Y]]:
 
         # Discretize
-        x_grid, mask_grid = self.discretizer(x_ctx, x_tar, mask_ctx, mask_tar)                      # [1, discrete, x_dim] (broadcastable to [batch, discrete, x_dim]), [discrete]
+        x_grid, mask_grid = self.discretizer(x_ctx, x_tar, mask_ctx, mask_tar)                      # [1, grid, x_dim] (broadcastable to [batch, grid, x_dim]), [discrete]
 
         # Encode
-        h = self.encoder(x_grid, x_ctx, y_ctx, mask_ctx)                                            # [batch, discrete, y_dim + 1]
+        h = self.encoder(x_grid, x_ctx, y_ctx, mask_ctx)                                            # [batch, grid, y_dim + 1]
 
         # Convolution
-        r = self.cnn(h)                                                                             # [batch, discrete, r_dim]
+        r = self.cnn(h)                                                                             # [batch, grid, r_dim]
 
         # Decode
         r = self.decoder(x_tar, x_grid, r, mask_grid)                                               # [batch, target, y_dim]

@@ -1,0 +1,5 @@
+datasets:  !include configs/gp/periodic/500/datasets.yaml
+model:     !include configs/gp/models/convbnp.yaml
+optimizer: !include configs/gp/optimizer.yaml
+train:     !include configs/gp/periodic/500/train.yaml
+test:      !include configs/gp/periodic/test.yaml

@@ -1,0 +1,5 @@
+datasets:  !include configs/image/celeba/datasets.yaml
+model:     !include configs/image/models/convbnp.yaml
+optimizer: !include configs/image/optimizer.yaml
+train:     !include configs/image/celeba/train.yaml
+test:      !include configs/image/celeba/test.yaml

@@ -22,13 +22,7 @@ from nxcl.rich import Progress
 from nxcl.config import load_config, save_config, add_config_arguments, ConfigDict
 from nxcl.experimental.utils import get_experiment_name, setup_logger, AverageMeter
 
-from npf.jax.models import (
-    CNP, CANP,
-    NP, ANP,
-    BNP, BANP,
-    NeuBNP, NeuBANP,
-    ConvCNP, ConvNP,
-)
+from npf.jax import models
 from npf.jax.data import get_shard_collate, build_dataloader
 
 
@@ -106,23 +100,10 @@ def main(config, output_dir):
     init_rngs = dict(params=params_key, sample=sample_key)
 
     # Create model
-    models = dict(
-        CNP=CNP,
-        CANP=CANP,
-        NP=NP,
-        ANP=ANP,
-        BNP=BNP,
-        BANP=BANP,
-        NeuBNP=NeuBNP,
-        NeuBANP=NeuBANP,
-        ConvCNP=ConvCNP,
-        ConvNP=ConvNP,
-    )
-
-    if config.model.name not in models:
+    if not hasattr(models, config.model.name):
         raise ValueError(f"Unknown model: {config.model.name}")
 
-    model = models[config.model.name](
+    model = getattr(models, config.model.name)(
         y_dim=config.datasets.shapes.y_ctx[-1],
         **config.model.get("kwargs", {}),
     )
@@ -143,16 +124,6 @@ def main(config, output_dir):
     logger.debug(f"Parameter shapes: {param_shapes}")
     logger.info(f"Number of parameters: {num_params}")
 
-    if config.optimizer.name == "adam":
-        tx = optax.adam(learning_rate=float(config.optimizer.learning_rate))
-    elif config.optimizer.name == "sgd":
-        tx = optax.sgd(learning_rate=float(config.optimizer.learning_rate))
-    else:
-        raise ValueError(f"Unknown optimizer: {config.optimizer.name}")
-
-    state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
-    state = jax_utils.replicate(state)
-
     # Create dataset
     key, train_key = random.split(key)
     valid_key = random.PRNGKey(42)
@@ -160,6 +131,32 @@ def main(config, output_dir):
     shard_collate = get_shard_collate(num_replicas=num_devices, jit=True)
     train_loader = build_dataloader(config.datasets.train, train_key, shard_collate)
     valid_loader = build_dataloader(config.datasets.valid, valid_key, shard_collate)
+
+    if train_loader.is_map_dataset:
+        num_step_per_epoch = config.train.get("num_step_per_epoch", len(train_loader))
+    else:
+        num_step_per_epoch = config.train.num_step_per_epoch
+        train_iterator = iter(train_loader)
+
+    # Create optimizer
+    if config.optimizer.use_scheduler:
+        lr = schedule = optax.cosine_decay_schedule(
+            config.optimizer.learning_rate,
+            num_step_per_epoch * config.train.num_epochs,
+        )
+    else:
+        lr = float(config.optimizer.learning_rate)
+        schedule = lambda step: lr  # For logging
+
+    if config.optimizer.name == "adam":
+        tx = optax.adam(learning_rate=lr)
+    elif config.optimizer.name == "sgd":
+        tx = optax.sgd(learning_rate=lr)
+    else:
+        raise ValueError(f"Unknown optimizer: {config.optimizer.name}")
+
+    state = TrainState.create(apply_fn=model.apply, params=params, tx=tx)
+    state = jax_utils.replicate(state)
 
     # Setup output directory
     link_output_dir(output_dir, subnames=(config.model.name, "Train", config.datasets.train.name))
@@ -172,14 +169,7 @@ def main(config, output_dir):
     train_meter = AverageMeter("loss")
     valid_meter = AverageMeter("ll_ctx", "ll_tar", "ll")
     best_ll, best_epoch, best_state = -jnp.inf, 0, None
-
     aux_meter = None
-
-    if train_loader.is_map_dataset:
-        num_step_per_epoch = config.train.get("num_step_per_epoch", len(train_loader))
-    else:
-        num_step_per_epoch = config.train.num_step_per_epoch
-        train_iterator = iter(train_loader)
 
     with Progress() as p:
         for i in p.trange(1, config.train.num_epochs + 1, description=config.model.name):
@@ -208,6 +198,7 @@ def main(config, output_dir):
 
             logger.info(
                 f"Epoch {i:3d} / {config.train.num_epochs:4d} | Train Loss: {train_meter.loss:7.4f}"
+                + (f" | LR: {schedule(state.step[0]):.4e}" if config.optimizer.use_scheduler else "")
                 + ("" if aux_meter is None else " | " + "  ".join([f"{k}: {v:7.4f}" for k, v in aux_meter.value.items()]))
             )
 

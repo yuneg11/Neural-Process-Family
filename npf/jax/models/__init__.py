@@ -8,6 +8,7 @@ from .anp import *
 
 from .convcnp import *
 from .convnp import *
+from .convbnp import *
 
 from .bnp import *
 from .neubnp import *
