@@ -22,7 +22,6 @@ __all__ = [
 ]
 
 
-
 #! TODO: Change model to support on-the-grid(discretized) data.
 class ConvCNPBase(NPF):
     """
@@ -32,8 +31,8 @@ class ConvCNPBase(NPF):
     discretizer:   Optional[nn.Module] = None
     encoder:       nn.Module = None
     cnn:           nn.Module = None
-    mu_decoder:    nn.Module = None
-    sigma_decoder: nn.Module = None
+    decoder:       nn.Module = None
+    min_sigma:     float = 0.0
 
     def __post_init__(self):
         super().__post_init__()
@@ -41,10 +40,8 @@ class ConvCNPBase(NPF):
             raise ValueError("encoder is not specified")
         if self.cnn is None:
             raise ValueError("cnn is not specified")
-        if self.mu_decoder is None:
-            raise ValueError("mu_decoder is not specified")
-        if self.sigma_decoder is None:
-            raise ValueError("sigma_decoder is not specified")
+        if self.decoder is None:
+            raise ValueError("decoder is not specified")
 
     @nn.compact
     def __call__(
@@ -63,13 +60,13 @@ class ConvCNPBase(NPF):
         h = self.encoder(x_grid, x_ctx, y_ctx, mask_ctx)                                            # [batch, discrete, y_dim + 1]
 
         # Convolution
-        mu_log_sigma_grid = self.cnn(h)                                                             # [batch, discrete, y_dim x 2]
-        mu_grid, log_sigma_grid = jnp.split(mu_log_sigma_grid, 2, axis=-1)                          # [batch, discrete, y_dim] x 2
-        sigma_grid = nn.softplus(log_sigma_grid)                                                    # [batch, discrete, y_dim]
+        r = self.cnn(h)                                                                             # [batch, discrete, r_dim]
 
         # Decode
-        mu    = self.mu_decoder(x_tar, x_grid, mu_grid,    mask_grid)                               # [batch, target, y_dim]
-        sigma = self.sigma_decoder(x_tar, x_grid, sigma_grid, mask_grid)                            # [batch, target, y_dim]
+        r = self.decoder(x_tar, x_grid, r, mask_grid)                                               # [batch, target, y_dim]
+        mu_log_sigma = nn.Dense(2 * y_ctx.shape[-1])(r)                                             # [batch, target, y_dim x 2]
+        mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, target, y_dim] x 2
+        sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma)                      # [batch, target, y_dim]
 
         mu    = F.masked_fill(mu,    mask_tar, non_mask_axis=-1)                                    # [batch, target, y_dim]
         sigma = F.masked_fill(sigma, mask_tar, non_mask_axis=-1)                                    # [batch, target, y_dim]
@@ -116,6 +113,7 @@ class ConvCNP:
         y_dim: int,
         x_min: float,
         x_max: float,
+        r_dim: int = 64,
         cnn_dims: Optional[Sequence[int]] = None,
         cnn_xl: bool = False,
         points_per_unit: int = 64,
@@ -128,7 +126,7 @@ class ConvCNP:
             multiple = 2 ** len(cnn_dims)  # num_halving_layers = len(cnn_dims)
         else:
             Net = CNN
-            cnn_dims = cnn_dims or (16, 32, 16)
+            cnn_dims = cnn_dims or (r_dim,) * 4
             multiple = 1
 
         init_log_scale = math.log(2. / points_per_unit)
@@ -142,9 +140,8 @@ class ConvCNP:
         )
 
         return ConvCNPBase(
-            discretizer   = discretizer,
-            encoder       = SetConv1dEncoder(init_log_scale=init_log_scale),
-            cnn           = Net(dimension=1, hidden_features=cnn_dims, out_features=(y_dim * 2)),
-            mu_decoder    = SetConv1dDecoder(init_log_scale=init_log_scale),
-            sigma_decoder = SetConv1dDecoder(init_log_scale=init_log_scale),
+            discretizer = discretizer,
+            encoder     = SetConv1dEncoder(init_log_scale=init_log_scale),
+            cnn         = Net(dimension=1, hidden_features=cnn_dims, out_features=r_dim),
+            decoder     = SetConv1dDecoder(init_log_scale=init_log_scale),
         )

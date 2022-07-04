@@ -28,13 +28,13 @@ class ConvNPBase(NPF):
     Base class of Convolutional Conditional Neural Process
     """
 
-    z_dim: int
-    discretizer:   Optional[nn.Module] = None
-    encoder:       nn.Module = None
-    cnn:           nn.Module = None
-    cnn_post_z:     nn.Module = None
-    decoder:        nn.Module = None
-    min_sigma:     float = 0.0
+    z_dim:       int
+    discretizer: Optional[nn.Module] = None
+    encoder:     nn.Module = None
+    cnn:         nn.Module = None
+    cnn_post_z:  nn.Module = None
+    decoder:     nn.Module = None
+    min_sigma:   float = 0.0
 
     def __post_init__(self):
         super().__post_init__()
@@ -63,17 +63,18 @@ class ConvNPBase(NPF):
 
         # Encode
         h = self.encoder(x_grid, x_ctx, y_ctx, mask_ctx)                                            # [batch, discrete, y_dim + 1]
+
         # Convolution
         h = self.cnn(h)
 
         # Transform to qz parameters and sample z
-        r = nn.Dense(2*self.z_dim)(h)
+        r = nn.Dense(2 * self.z_dim)(h)
         # [batch_size, num_grids, z_dim]
-        mu, sigma = jnp.split(nn.Dense(2*self.z_dim)(r), 2, axis=-1)
-        sigma = 0.1 + 0.9*nn.sigmoid(sigma)
+        mu, sigma = jnp.split(nn.Dense(2 * self.z_dim)(r), 2, axis=-1)
+        sigma = 0.1 + 0.9 * nn.sigmoid(sigma)
         rng = self.make_rng("sample")
         # [batch_size, num_latents, num_grids, z_dim]
-        eps = random.normal(rng, shape=(mu.shape[0],num_latents)+mu.shape[1:])
+        eps = random.normal(rng, shape=(mu.shape[0], num_latents) + mu.shape[1:])
         # [batch_size, num_latents, num_grids, z_dim]
         z = jnp.expand_dims(mu, 1) + jnp.expand_dims(sigma, 1) * eps
         # [batch_size, num_latents, num_grids, z_dim]
@@ -88,14 +89,16 @@ class ConvNPBase(NPF):
             jnp.expand_dims(x_tar, 1),
             jnp.expand_dims(x_grid, 1),
             z,
-            jnp.expand_dims(mask_grid, 1))
+            jnp.expand_dims(mask_grid, 1),
+        )
 
-        mu, sigma = jnp.split(nn.Dense(2*y_ctx.shape[-1])(h), 2, axis=-1)
-        sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(sigma)
+        h = self.decoder(x_tar, x_grid, h, mask_grid)                                               # [batch, latent, target, y_dim]
+        mu_log_sigma = nn.Dense(2 * y_ctx.shape[-1])(h)                                             # [batch, latent, target, y_dim x 2]
+        mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, latent, target, y_dim] x 2
+        sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma)                      # [batch, latent, target, y_dim]
 
-        mask_tar = jnp.expand_dims(mask_tar, 1)
-        mu    = F.masked_fill(mu,    mask_tar, non_mask_axis=-1)                                    # [batch, target, y_dim]
-        sigma = F.masked_fill(sigma, mask_tar, non_mask_axis=-1)                                    # [batch, target, y_dim]
+        mu    = F.masked_fill(mu,    mask_tar, non_mask_axis=(1, -1))                               # [batch, latent, target, y_dim]
+        sigma = F.masked_fill(sigma, mask_tar, non_mask_axis=(1, -1))                               # [batch, latent, target, y_dim]
         return mu, sigma
 
     def log_likelihood(
@@ -109,8 +112,7 @@ class ConvNPBase(NPF):
         num_latents: int = 1,
     ) -> Array:
 
-        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar,
-                         num_latents=num_latents)
+        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_latents=num_latents)
 
         # [batch, num_latents, *targets, y_dim]
         ll = stats.norm.logpdf(jnp.expand_dims(y_tar, 1), mu, sigma)
@@ -162,7 +164,7 @@ class ConvNP:
             multiple = 2 ** len(cnn_dims)  # num_halving_layers = len(cnn_dims)
         else:
             Net = CNN
-            cnn_dims = (r_dim,)*2
+            cnn_dims = (r_dim,) * 2
             multiple = 1
 
         init_log_scale = math.log(2. / points_per_unit)
@@ -176,10 +178,10 @@ class ConvNP:
         )
 
         return ConvNPBase(
-                z_dim=z_dim,
-                discretizer = discretizer,
-                encoder  = SetConv1dEncoder(init_log_scale=init_log_scale),
-                cnn = Net(dimension=1, hidden_features=cnn_dims, out_features=r_dim),
-                cnn_post_z = Net(dimension=1, hidden_features=cnn_dims, out_features=r_dim),
-                decoder = SetConv1dDecoder(init_log_scale=init_log_scale)
-                )
+            z_dim       = z_dim,
+            discretizer = discretizer,
+            encoder     = SetConv1dEncoder(init_log_scale=init_log_scale),
+            cnn         = Net(dimension=1, hidden_features=cnn_dims, out_features=r_dim),
+            cnn_post_z  = Net(dimension=1, hidden_features=cnn_dims, out_features=r_dim),
+            decoder     = SetConv1dDecoder(init_log_scale=init_log_scale)
+        )
