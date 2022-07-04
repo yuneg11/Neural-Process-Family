@@ -1,0 +1,15 @@
+datasets:
+  test_bo:
+    name: t_noise-BO
+    type: GP
+    gp:
+      kernel: !include configs/gp/rbf/kernel.yaml
+      data_size: 100
+      num_ctx: 1
+      num_points: 100
+      x_range: [-2, 2]
+      t_noise: -1
+
+test_bo:
+  seed: 43
+  num_steps: 50

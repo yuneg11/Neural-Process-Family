@@ -1,0 +1,15 @@
+train:
+  name: t_noise/125
+  type: GP
+  batch_size: 256
+  shuffle: True
+  drop_last: True
+  gp:
+    kernel: !include configs/gp/rbf/kernel.yaml
+    data_size: 204800
+    max_num_points: 50
+    x_range: [-2, 2]
+    t_noise: -1
+valid:  !include configs/gp/t_noise/datasets_test.yaml
+test:   !include configs/gp/t_noise/datasets_test.yaml
+shapes: !include configs/gp/gp_shapes.yaml

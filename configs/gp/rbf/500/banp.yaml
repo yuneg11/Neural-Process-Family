@@ -1,0 +1,5 @@
+datasets:  !include configs/gp/rbf/500/datasets.yaml
+model:     !include configs/gp/models/banp.yaml
+optimizer: !include configs/gp/optimizer.yaml
+train:     !include configs/gp/rbf/500/train.yaml
+test:      !include configs/gp/rbf/test.yaml

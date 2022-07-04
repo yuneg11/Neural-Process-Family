@@ -1,2 +1,2 @@
-nxcl==0.0.3.dev0
-nxml==0.0.1.dev0
+nxcl==0.0.3.dev3
+nxml==0.0.3

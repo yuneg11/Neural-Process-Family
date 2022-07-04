@@ -1,0 +1,15 @@
+name: NeuBANP
+kwargs:
+  r_dim: 128
+  sa_heads: 8
+  ca_heads: 8
+  transform_qk_dims: [128, 128, 128, 128, 128]
+  encoder_dims: [128, 128, 128, 128, 128]
+  decoder_dims: [128, 128, 128]
+train_kwargs:
+  num_samples: 10
+  return_aux: True
+valid_kwargs:
+  num_samples: 10
+test_kwargs:
+  num_samples: 10

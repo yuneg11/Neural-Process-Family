@@ -1,0 +1,11 @@
+name: ConvCNP
+kwargs:
+  x_min: -2.0
+  x_max: +2.0
+  cnn_dims: [16, 32, 16]
+  cnn_xl: False
+  points_per_unit: 64
+  x_margin: 0.1
+train_kwargs: {}
+valid_kwargs: {}
+test_kwargs: {}

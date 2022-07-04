@@ -1,0 +1,21 @@
+name: ANP
+kwargs:
+  r_dim: 128
+  z_dim: 128
+  common_sa_heads: null
+  latent_sa_heads: 8
+  determ_sa_heads: 8
+  determ_ca_heads: 8
+  determ_transform_qk_dims: [128, 128, 128, 128, 128]
+  common_encoder_dims: null
+  latent_encoder_dims: [128, 128]
+  determ_encoder_dims: [128, 128, 128, 128, 128]
+  decoder_dims: [128, 128, 128]
+  loss_type: vi
+train_kwargs:
+  num_latents: 5
+  return_aux: True
+valid_kwargs:
+  num_latents: 5
+test_kwargs:
+  num_latents: 5

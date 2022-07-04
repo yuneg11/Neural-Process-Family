@@ -1,0 +1,3 @@
+datasets:
+  test: !include configs/gp/periodic/datasets_test.yaml
+test: !include configs/gp/periodic/test.yaml

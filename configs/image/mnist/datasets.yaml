@@ -1,0 +1,46 @@
+train:
+  name: MNIST
+  type: Image
+  batch_size: 32
+  shuffle: True
+  drop_last: True
+  image:
+    name: MNIST
+    root: ./datasets
+    split: train
+    full_tar: False
+    max_num_points: 200
+    flatten: False
+valid:
+  name: MNIST
+  type: Image
+  batch_size: 256
+  shuffle: False
+  drop_last: True
+  image:
+    name: MNIST
+    root: ./datasets
+    split: valid
+    full_tar: True
+    max_num_points: 200
+    flatten: False
+test:
+  name: MNIST
+  type: Image
+  batch_size: 256
+  shuffle: False
+  drop_last: True
+  image:
+    name: MNIST
+    root: ./datasets
+    split: test
+    full_tar: True
+    max_num_points: 200
+    flatten: False
+shapes:
+  x_ctx: [-1, 28, 28, 2]
+  y_ctx: [-1, 28, 28, 1]
+  x_tar: [-1, 28, 28, 2]
+  y_tar: [-1, 28, 28, 1]
+  mask_ctx: [-1, 28, 28]
+  mask_tar: [-1, 28, 28]
