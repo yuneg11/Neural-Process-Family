@@ -16,7 +16,6 @@ __all__ = [
     "NP",
 ]
 
-
 class NPBase(NPF):
     """
     Base class of Neural Process
@@ -290,7 +289,6 @@ class NPBase(NPF):
             num_latents=num_latents, as_mixture=as_mixture,
         )
         return loss                                                                                 # (1)
-
 
 class NP:
     """

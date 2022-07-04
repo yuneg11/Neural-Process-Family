@@ -11,7 +11,6 @@ from ..modules import (
     MultiheadSelfAttention,
 )
 
-
 __all__ = [
     "CANPBase",
     "CANP",
@@ -28,7 +27,7 @@ class CANPBase(CNPBase):
     transform_qk:    Optional[nn.Module] = None
     cross_attention: nn.Module = None
     decoder:         nn.Module = None
-    min_sigma:       float = 0.1
+    min_sigma:       float = 0.0
 
     def __post_init__(self):
         super().__post_init__()

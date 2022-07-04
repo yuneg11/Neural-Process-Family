@@ -1,0 +1,11 @@
+name: ConvNP
+kwargs:
+    x_min: -2.0
+    x_max: +2.0
+    z_dim: 64
+train_kwargs:
+    num_latents: 10
+valid_kwargs:
+    num_latents: 10
+test_kwargs:
+    num_latents: 10
