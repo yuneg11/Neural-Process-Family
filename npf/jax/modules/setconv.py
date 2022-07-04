@@ -90,12 +90,10 @@ class SetConvBase(nn.Module):
     ) -> Array[B, N, M]:
 
         if a.shape[-1] == 1 and b.shape[-1] == 1:
-            distance = jnp.square(a - jnp.swapaxes(b, -1, -2))
-        else:
-            a_norm = jnp.expand_dims(jnp.sum(jnp.square(a), axis=-1), axis=-1)                      # [batch, n, 1]
-            b_norm = jnp.expand_dims(jnp.sum(jnp.square(b), axis=-1), axis=-2)                      # [batch, 1, m]
-            distance = a_norm + b_norm - 2 * jnp.matmul(a, jnp.swapaxes(b, -1, -2))                 # [batch, n, m]
-        return distance
+            return jnp.square(a - jnp.swapaxes(b, -1, -2))
+        a_norm = jnp.expand_dims(jnp.sum(jnp.square(a), axis=-1), axis=-1)                      # [batch, n, 1]
+        b_norm = jnp.expand_dims(jnp.sum(jnp.square(b), axis=-1), axis=-2)                      # [batch, 1, m]
+        return a_norm + b_norm - 2 * jnp.matmul(a, jnp.swapaxes(b, -1, -2))
 
     def _get_weight(self,
         a: Array[B, N, X],
@@ -104,8 +102,7 @@ class SetConvBase(nn.Module):
 
         log_scale = self.param("log_scale", lambda key: self.init_log_scale)
         distance = self._get_distance(a, b)                                                         # [batch, n, m]
-        weight = jnp.exp(-0.5 * distance / jnp.exp(2 * log_scale))                                  # [batch, n, m]
-        return weight
+        return jnp.exp(-0.5 * distance / jnp.exp(2 * log_scale))
 
 class SetConv1dEncoder(SetConvBase):
     @nn.compact

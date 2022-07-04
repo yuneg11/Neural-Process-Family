@@ -52,14 +52,13 @@ class NPBase(NPF):
 
         if latent_only:
             return z_i                                                                              # [batch, point, z_dim x 2]
+        if self.determ_encoder is None:
+            r_i = None                                                                          # None
+        elif self.determ_encoder is self.latent_encoder:
+            r_i = z_i                                                                           # [batch, point, r_dim]
         else:
-            if self.determ_encoder is None:
-                r_i = None                                                                          # None
-            elif self.determ_encoder is self.latent_encoder:
-                r_i = z_i                                                                           # [batch, point, r_dim]
-            else:
-                r_i = self.determ_encoder(xy)                                                       # [batch, point, r_dim]
-            return z_i, r_i                                                                         # [batch, point, z_dim x 2], ([batch, point, r_dim] | None)
+            r_i = self.determ_encoder(xy)                                                       # [batch, point, r_dim]
+        return z_i, r_i                                                                         # [batch, point, z_dim x 2], ([batch, point, r_dim] | None)
 
     def _latent_dist(
         self,
@@ -116,7 +115,7 @@ class NPBase(NPF):
 
         query = F.flatten(query, start=0, stop=2)                                                   # [batch x latent, target, x_dim + z_dim (+ r_dim)]
         mu_log_sigma = self.decoder(query)                                                          # [batch x latent, target, y_dim x 2]
-        mu_log_sigma = F.unflatten(mu_log_sigma, z_ctx.shape[0:2], axis=0)                          # [batch, latent, target, y_dim, 2]
+        mu_log_sigma = F.unflatten(mu_log_sigma, z_ctx.shape[:2], axis=0)
 
         mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, latent, target, y_dim] x 2
         sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma)                      # [batch, latent, target, y_dim]
@@ -164,10 +163,7 @@ class NPBase(NPF):
         mu    = F.unflatten(mu,    shape_tar, axis=-2)                                              # [batch, latent, *target, y_dim]
         sigma = F.unflatten(sigma, shape_tar, axis=-2)                                              # [batch, latent, *target, y_dim]
 
-        if return_aux:
-            return mu, sigma, (z_mu_ctx, z_sigma_ctx)                                               # [batch, latent, *target, y_dim] x 2, ([batch, 1, z_dim] x 2)
-        else:
-            return mu, sigma                                                                        # [batch, latent, *target, y_dim] x 2
+        return (mu, sigma, (z_mu_ctx, z_sigma_ctx)) if return_aux else (mu, sigma)
 
     def log_likelihood(
         self,
@@ -202,10 +198,7 @@ class NPBase(NPF):
             ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
             ll = jnp.mean(ll)                                                                       # (1)
 
-        if return_aux:
-            return ll, aux                                                                          # (1), ([batch, 1, z_dim] x 2)
-        else:
-            return ll                                                                               # (1)
+        return (ll, aux) if return_aux else ll
 
     def loss(
         self,
@@ -262,8 +255,7 @@ class NPBase(NPF):
             - 0.5
         )
 
-        loss = -ll + kld                                                                            # (1)
-        return loss
+        return -ll + kld
 
     def ml_loss(
         self,
@@ -278,11 +270,16 @@ class NPBase(NPF):
         as_mixture: bool = False,
     ) -> Array:
 
-        loss = -self.log_likelihood(                                                                # (1)
-            x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-            num_latents=num_latents, as_mixture=as_mixture,
+        return -self.log_likelihood(  # (1)
+            x_ctx,
+            y_ctx,
+            x_tar,
+            y_tar,
+            mask_ctx,
+            mask_tar,
+            num_latents=num_latents,
+            as_mixture=as_mixture,
         )
-        return loss                                                                                 # (1)
 
 class NP:
     """

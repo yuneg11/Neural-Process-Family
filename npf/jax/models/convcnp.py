@@ -97,8 +97,7 @@ class ConvCNPBase(NPF):
         mask_tar: Array[B, [T]],
     ) -> Array:
 
-        loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)                 # (1)
-        return loss
+        return -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)
 
 #! TODO: Add 2d model
 class ConvCNP:
@@ -118,13 +117,9 @@ class ConvCNP:
     ):
         if cnn_xl:
             raise NotImplementedError("cnn_xl is not supported yet")
-            Net = UNet
-            cnn_dims = cnn_dims or (8, 16, 16, 32, 32, 64)
-            multiple = 2 ** len(cnn_dims)  # num_halving_layers = len(cnn_dims)
-        else:
-            Net = CNN
-            cnn_dims = cnn_dims or (r_dim,)*4
-            multiple = 1
+        Net = CNN
+        cnn_dims = cnn_dims or (r_dim,)*4
+        multiple = 1
 
         init_log_scale = math.log(2. / points_per_unit)
 

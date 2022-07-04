@@ -45,7 +45,7 @@ class DataLoader:
         if batch_sampler is not None:
             raise NotImplementedError("batch_sampler is not supported yet")
 
-        if persistent_workers is True:
+        if persistent_workers:
             raise NotImplementedError("persistent_workers is not supported yet")
 
         if batch_size is None and drop_last:
@@ -86,15 +86,14 @@ class DataLoader:
         self._cache_iter = None
 
     def __len__(self):
-        if self.is_map_dataset:
-            if self.batch_size is None:
-                return len(self.dataset)
-            elif self.drop_last:
-                return math.floor(len(self.dataset) / self.batch_size)
-            else:
-                return math.ceil(len(self.dataset) / self.batch_size)
-        else:
+        if not self.is_map_dataset:
             raise RuntimeError("__len__ is not supported for IterableDataset")
+        if self.batch_size is None:
+            return len(self.dataset)
+        elif self.drop_last:
+            return math.floor(len(self.dataset) / self.batch_size)
+        else:
+            return math.ceil(len(self.dataset) / self.batch_size)
 
     def __iter__(self):
         if self._key is not None:
@@ -123,17 +122,16 @@ class DataLoader:
                     self.collate_fn(self.dataset[idxs[batch_start:batch_start + self.batch_size]])
                     for batch_start in batch_range
                 )
-        else:
-            if self.batch_size:
-                _dataset_iter = iter(self.dataset)
+        elif self.batch_size:
+            _dataset_iter = iter(self.dataset)
 
-                self._iter = (
-                    self.collate_fn(list(itertools.islice(_dataset_iter, self.batch_size)))
-                    for _ in itertools.count()
-                )
-            else:
-                # TODO: temporary solution
-                self._iter = (self.collate_fn(batch) for batch in self.dataset)
+            self._iter = (
+                self.collate_fn(list(itertools.islice(_dataset_iter, self.batch_size)))
+                for _ in itertools.count()
+            )
+        else:
+            # TODO: temporary solution
+            self._iter = (self.collate_fn(batch) for batch in self.dataset)
 
         if self.prefetch_factor is not None:
             if self.prefetch_devices is None:
@@ -182,11 +180,12 @@ class DataLoader:
 # TODO: Improve implementation
 def default_collate(batch):
     num_elements = len(batch[0])
-    collated_batch = [
-        jax.lax.stop_gradient(jnp.stack([batch[j][i] for j in range(len(batch))], axis=0))
+    return [
+        jax.lax.stop_gradient(
+            jnp.stack([batch[j][i] for j in range(len(batch))], axis=0)
+        )
         for i in range(num_elements)
     ]
-    return collated_batch
 
 # TODO: Improve implementation
 def get_shard_collate(num_replicas: Optional[int] = None, jit: bool = False):
@@ -248,7 +247,7 @@ class ArrayDataset(Dataset):
         self.data_len = data_len
 
     def __getitem__(self, index):
-        return tuple([array[index] for array in self.arrays])
+        return tuple(array[index] for array in self.arrays)
 
     def __len__(self):
         return self.data_len

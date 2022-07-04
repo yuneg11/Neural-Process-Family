@@ -52,10 +52,7 @@ def get_train_step(model, **kwargs):
                 params, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
                 method=model.loss, rngs=rngs, **kwargs,
             )
-            if isinstance(outs, tuple):
-                loss, aux = outs
-            else:
-                loss, aux = outs, None
+            loss, aux = outs if isinstance(outs, tuple) else (outs, None)
             return loss, aux
 
         (loss, aux), grads = jax.value_and_grad(loss_fn, has_aux=True)(state.params)
@@ -76,11 +73,18 @@ def get_train_step(model, **kwargs):
 def get_valid_step(model, **kwargs):
     @partial(jax.pmap, axis_name="batch")
     def _valid_step(state, rngs, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar):
-        ll = model.apply(
-            state.params, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-            method=model.log_likelihood, rngs=rngs, **kwargs,
+        return model.apply(
+            state.params,
+            x_ctx,
+            y_ctx,
+            x_tar,
+            y_tar,
+            mask_ctx,
+            mask_tar,
+            method=model.log_likelihood,
+            rngs=rngs,
+            **kwargs,
         )
-        return ll
 
     def valid_step(state, rngs, *, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar):
         metric = _valid_step(state, rngs, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)

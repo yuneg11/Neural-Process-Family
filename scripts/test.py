@@ -45,11 +45,18 @@ def sync_metric(metric):
 def get_test_step(model, **kwargs):
     @partial(jax.pmap, axis_name="batch")
     def _test_step(state, rngs, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar):
-        ll = model.apply(
-            state["params"], x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-            method=model.log_likelihood, rngs=rngs, **kwargs,
+        return model.apply(
+            state["params"],
+            x_ctx,
+            y_ctx,
+            x_tar,
+            y_tar,
+            mask_ctx,
+            mask_tar,
+            method=model.log_likelihood,
+            rngs=rngs,
+            **kwargs,
         )
-        return ll
 
     def test_step(state, rngs, *, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar):
         metric = _test_step(state, rngs, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)
@@ -110,7 +117,7 @@ def main(config, output_dir):
 
     if test_loader.is_map_dataset:
         num_step_per_epoch = config.test.get("num_step_per_epoch", len(test_loader))
-        iter_loader = (v for v in test_loader)
+        iter_loader = iter(test_loader)
     else:
         num_step_per_epoch = config.test.num_step_per_epoch
         test_iterator = iter(test_loader)
@@ -164,9 +171,8 @@ if __name__ == "__main__":
         args.config_file = os.path.join(args.train_dir, "config.yaml")
         if args.checkpoint is None:
             args.checkpoint = checkpoints.latest_checkpoint(args.train_dir, "ckpt_best_ll_")
-    else:
-        if args.checkpoint is None:
-            raise ValueError("Must specify checkpoint if --config-file is specified")
+    elif args.checkpoint is None:
+        raise ValueError("Must specify checkpoint if --config-file is specified")
 
     rest_args.extend(["--test.checkpoint", args.checkpoint])
 

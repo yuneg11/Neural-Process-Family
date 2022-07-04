@@ -66,9 +66,8 @@ class AttnCNPBase(CNPBase):
         if self.transform_qk is not None:
             r_i_q, r_i_k = self.transform_qk(r_i_q), self.transform_qk(r_i_k)                       # [batch x (*model), target, qk_dim], [batch x (*model), context, qk_dim]
 
-        r_ctx = self.cross_attention(r_i_q, r_i_k, r_i_ctx, mask=mask_ctx)                          # [batch x (*model), target, r_dim]
         # r_ctx = F.unflatten(r_ctx, shape, axis=0)                                                 # [batch, (*model), target, r_dim]
-        return r_ctx                                                                                # [batch, (*model), target, r_dim]
+        return self.cross_attention(r_i_q, r_i_k, r_i_ctx, mask=mask_ctx)
 
 class AttnCNP:
     """

@@ -49,19 +49,17 @@ def sample_gp_for_plot(self, key, batch_size=16, num_ctx=None, max_num_points=50
             t_noise = self.t_noise
         y += t_noise * random.t(keys[6], df=2.1, shape=y.shape)
 
-    batch = (
-        x,                                                           # x
-        y,                                                           # y
-        mask,                                                        # mask
-        F.masked_fill(x, mask_ctx, mask_axis=(0, 1), fill_value=0),  # x_ctx
-        F.masked_fill(y, mask_ctx, mask_axis=(0, 1), fill_value=0),  # y_ctx
-        mask_ctx,                                                    # mask_ctx
-        x,                                                           # x_tar
-        y,                                                           # y_tar
-        mask_tar,                                                    # mask_tar
+    return (
+        x,
+        y,
+        mask,
+        F.masked_fill(x, mask_ctx, mask_axis=(0, 1), fill_value=0),
+        F.masked_fill(y, mask_ctx, mask_axis=(0, 1), fill_value=0),
+        mask_ctx,
+        x,
+        y,
+        mask_tar,
     )
-
-    return batch
 
 class RBFKernel:
     def __init__(self, sigma_eps=2e-2, max_length=0.6, max_scale=1.0):
@@ -75,9 +73,9 @@ class RBFKernel:
         scale  = 0.1 + (self.max_scale  - 0.1) * random.uniform(subkey_2, shape=(x.shape[0], 1, 1))
 
         dist = (jnp.expand_dims(x, axis=-2) - jnp.expand_dims(x, axis=-3)) / length
-        cov = jnp.power(scale, 2) * jnp.exp(-0.5 * jnp.power(dist, 2).sum(axis=-1)) + self.sigma_eps ** 2 * jnp.eye(x.shape[-2])
-
-        return cov
+        return jnp.power(scale, 2) * jnp.exp(
+            -0.5 * jnp.power(dist, 2).sum(axis=-1)
+        ) + self.sigma_eps**2 * jnp.eye(x.shape[-2])
 
 class Matern52Kernel:
     def __init__(self, sigma_eps=2e-2, max_length=0.6, max_scale=1.0):
@@ -91,9 +89,11 @@ class Matern52Kernel:
         scale  = 0.1 + (self.max_scale  - 0.1) * random.uniform(subkey_2, shape=(x.shape[0], 1, 1))
 
         dist = jnp.linalg.norm((jnp.expand_dims(x, axis=-2) - jnp.expand_dims(x, axis=-3)) / length, axis=-1)
-        cov = jnp.power(scale, 2) * (1 + math.sqrt(5.0) * dist + 5.0 / 3.0 * jnp.power(dist, 2)) * jnp.exp(-math.sqrt(5.0) * dist) + self.sigma_eps ** 2 * jnp.eye(x.shape[-2])
-
-        return cov
+        return jnp.power(scale, 2) * (
+            1 + math.sqrt(5.0) * dist + 5.0 / 3.0 * jnp.power(dist, 2)
+        ) * jnp.exp(-math.sqrt(5.0) * dist) + self.sigma_eps**2 * jnp.eye(
+            x.shape[-2]
+        )
 
 class PeriodicKernel:
     def __init__(self, sigma_eps=2e-2, max_length=0.6, max_scale=1.0):
@@ -109,9 +109,12 @@ class PeriodicKernel:
         scale  = 0.1 + (self.max_scale  - 0.1) * random.uniform(subkey_2, shape=(x.shape[0], 1, 1))
 
         dist = jnp.expand_dims(x, axis=-2) - jnp.expand_dims(x, axis=-3)
-        cov = jnp.power(scale, 2) * jnp.exp(-2 * jnp.power((jnp.sin(math.pi * jnp.abs(dist).sum(axis=-1) / p) / length), 2)) + self.sigma_eps ** 2 * jnp.eye(x.shape[-2])
-
-        return cov
+        return jnp.power(scale, 2) * jnp.exp(
+            -2
+            * jnp.power(
+                (jnp.sin(math.pi * jnp.abs(dist).sum(axis=-1) / p) / length), 2
+            )
+        ) + self.sigma_eps**2 * jnp.eye(x.shape[-2])
 
 def build_gp_dataset(config, key):
     config.setdefault("data_size", None)
@@ -138,8 +141,8 @@ def build_gp_dataset(config, key):
         max_scale=config.kernel.get("max_scale", 1.0),
     )
 
-    if config.data_size is None:
-        dataset = GPIterableDataset(
+    return (
+        GPIterableDataset(
             key=key,
             kernel=kernel,
             batch_size=config.batch_size,
@@ -149,8 +152,8 @@ def build_gp_dataset(config, key):
             x_range=config.x_range,
             t_noise=config.t_noise,
         )
-    else:
-        dataset = GPDataset(
+        if config.data_size is None
+        else GPDataset(
             key=key,
             kernel=kernel,
             data_size=config.data_size,
@@ -160,8 +163,7 @@ def build_gp_dataset(config, key):
             x_range=config.x_range,
             t_noise=config.t_noise,
         )
-
-    return dataset
+    )
 
 def build_gp_prior_dataset(config, key):
     config.setdefault("data_size", None)
@@ -186,7 +188,7 @@ def build_gp_prior_dataset(config, key):
         max_scale=config.kernel.get("max_scale", 1.0),
     )
 
-    dataset = GPPriorDataset(
+    return GPPriorDataset(
         key=key,
         kernel=kernel,
         data_size=config.data_size,
@@ -195,18 +197,15 @@ def build_gp_prior_dataset(config, key):
         t_noise=config.t_noise,
     )
 
-    return dataset
-
 def build_image_dataset(config, key):
     pass
 
 def build_sim2real_dataset(config, key):
-    dataset = Sim2RealDataset(
+    return Sim2RealDataset(
         root=config.root,
         name=config.name,
         split=config.split,
     )
-    return dataset
 
 def build_dataloader(config, collate_fn, key):
     dataloader_key, dataset_key = random.split(key)
@@ -220,7 +219,7 @@ def build_dataloader(config, collate_fn, key):
     else:
         raise ValueError(f"Unknown dataset type: {config.type}")
 
-    dataloader = DataLoader(
+    return DataLoader(
         dataset,
         batch_size=config.batch_size,
         shuffle=config.shuffle,
@@ -228,8 +227,6 @@ def build_dataloader(config, collate_fn, key):
         drop_last=config.drop_last,
         key=dataloader_key,
     )
-
-    return dataloader
 
 class GPDatasetBase(Dataset):
     chunk_size = 256
@@ -293,19 +290,17 @@ class GPDatasetBase(Dataset):
                 t_noise = self.t_noise
             y += t_noise * random.t(keys[6], df=2.1, shape=y.shape)
 
-        chunk = (
-            F.masked_fill(x, mask,     mask_axis=(0, 1), fill_value=0),  # x
-            F.masked_fill(y, mask,     mask_axis=(0, 1), fill_value=0),  # y
-            mask,                                                        # mask
-            F.masked_fill(x, mask_ctx, mask_axis=(0, 1), fill_value=0),  # x_ctx
-            F.masked_fill(y, mask_ctx, mask_axis=(0, 1), fill_value=0),  # y_ctx
-            mask_ctx,                                                    # mask_ctx
-            F.masked_fill(x, mask_tar, mask_axis=(0, 1), fill_value=0),  # x_tar
-            F.masked_fill(y, mask_tar, mask_axis=(0, 1), fill_value=0),  # y_tar
-            mask_tar,                                                    # mask_tar
+        return (
+            F.masked_fill(x, mask, mask_axis=(0, 1), fill_value=0),
+            F.masked_fill(y, mask, mask_axis=(0, 1), fill_value=0),
+            mask,
+            F.masked_fill(x, mask_ctx, mask_axis=(0, 1), fill_value=0),
+            F.masked_fill(y, mask_ctx, mask_axis=(0, 1), fill_value=0),
+            mask_ctx,
+            F.masked_fill(x, mask_tar, mask_axis=(0, 1), fill_value=0),
+            F.masked_fill(y, mask_tar, mask_axis=(0, 1), fill_value=0),
+            mask_tar,
         )
-
-        return chunk
 
 class GPDataset(GPDatasetBase):
     def __init__(
@@ -422,8 +417,7 @@ class GPIterableDataset(GPDatasetBase, IterableDataset):
             self._keys_queue.extend(_keys)
 
         key = self._keys_queue.popleft()
-        chunk = self.build_chunk(key)
-        return chunk
+        return self.build_chunk(key)
 
 SIM2REAL_DATASETS = {
     "lotkavolterra": "lotka_volterra",

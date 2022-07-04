@@ -49,17 +49,17 @@ def process_mask_axis(a_ndim, mask_ndim, mask_axis: OptAxis = None, non_mask_axi
             raise ValueError(
                 f"length of mask_axis must match mask.ndim: {len(mask_axis)} != {mask_ndim}"
             )
-        mask_axis = set([d if d >= 0 else d + a_ndim for d in mask_axis])
+        mask_axis = {d if d >= 0 else d + a_ndim for d in mask_axis}
         non_mask_axis = set(range(a_ndim)) - mask_axis
 
-    elif mask_axis is None and non_mask_axis is not None:
+    elif mask_axis is None:
         non_mask_axis = [non_mask_axis] if isinstance(non_mask_axis, int) else non_mask_axis
         if len(non_mask_axis) != a_ndim - mask_ndim:
             raise ValueError(
                 f"length of non_mask_axis must match a.ndim - mask.ndim: "
                 f"{len(non_mask_axis)} != {a_ndim - mask_ndim}"
             )
-        non_mask_axis = set([d if d >= 0 else d + a_ndim for d in non_mask_axis])
+        non_mask_axis = {d if d >= 0 else d + a_ndim for d in non_mask_axis}
         mask_axis = set(range(a_ndim)) - non_mask_axis
 
     else:
@@ -81,7 +81,7 @@ def is_maskable(
     mask_axis, non_mask_axis = process_mask_axis(a.ndim, mask.ndim, mask_axis, non_mask_axis)
 
     try:
-        target_a_shape = tuple([a.shape[d] for d in mask_axis])
+        target_a_shape = tuple(a.shape[d] for d in mask_axis)
         maskable = (np.broadcast_shapes(mask.shape, target_a_shape) == target_a_shape)
     except ValueError:
         maskable = False
@@ -105,7 +105,7 @@ def process_mask(
         raise e
 
     try:
-        target_a_shape = tuple([a.shape[d] for d in mask_axis])
+        target_a_shape = tuple(a.shape[d] for d in mask_axis)
         maskable = (np.broadcast_shapes(mask.shape, target_a_shape) == target_a_shape)
     except ValueError:
         maskable = False
@@ -135,10 +135,7 @@ def flatten(a, start: Optional[int] = None, stop: Optional[int] = None, return_s
         flatten_size = math.prod(original_shape)
         a = jnp.reshape(a, (*a.shape[:start], flatten_size, *a.shape[stop:]))
 
-    if return_shape:
-        return a, original_shape
-    else:
-        return a
+    return (a, original_shape) if return_shape else a
 
 # TODO: Support jit
 # @partial(jax.jit, static_argnames=("shape", "axis"))
@@ -150,7 +147,7 @@ def unflatten(a, shape, axis: int):
     axis = axis if axis >= 0 else axis + a.ndim
 
     if -1 in shape:
-        if sum([s == -1 for s in shape]) > 1:
+        if sum(s == -1 for s in shape) > 1:
             raise ValueError(f"Only one shape can be inferred: but found {shape}")
 
         flatten_size = a.shape[axis]
@@ -160,7 +157,7 @@ def unflatten(a, shape, axis: int):
             raise ValueError(f"Cannot infer the shape: {flatten_size} not divisible by {other_size}")
 
         auto_shape = flatten_size // other_size
-        shape = tuple([s if s != -1 else auto_shape for s in shape])
+        shape = tuple(s if s != -1 else auto_shape for s in shape)
 
     else:
         flatten_size = math.prod(shape)
@@ -180,8 +177,7 @@ def get_mask(n: int, start: int = 0, stop: int = None):
     """
 
     stop = n if stop is None else stop
-    mask = (start <= np.arange(n)) & (np.arange(n) < stop)
-    return mask
+    return (start <= np.arange(n)) & (np.arange(n) < stop)
 
 def masked_fill(
     a,
