@@ -1,0 +1,4 @@
+seed: 3
+num_steps: 260000
+valid_every: 2600
+save_every: 2600

@@ -34,7 +34,7 @@ You should handle other logics (include train, evaluation, etc...)
 
 ```bash
 # Dependencies
-pip install rich nxcl==0.0.3.dev0
+pip install rich nxcl==0.0.3.dev3
 
 ## And ML frameworks (JAX, PyTorch)
 # ex) pip install jax
@@ -52,6 +52,14 @@ python scripts/jax/train.py -f configs/attnnp.yaml -lr 0.0001 --model.train_kwar
 
 The output will be saved under `outs/` directory.
 Details will be added in the future.
+
+## Download or build datasets
+
+### Image datasets
+
+```bash
+python -m npf.jax.data.save --root ./datasets --dataset mnist
+```
 
 ## Models
 

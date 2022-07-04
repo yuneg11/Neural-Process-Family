@@ -1,0 +1,16 @@
+train:
+  name: Matern/Inf
+  type: GP
+  batch_size: null
+  shuffle: False
+  drop_last: False
+  gp:
+    kernel: !include configs/gp/matern/kernel.yaml
+    data_size: null
+    batch_size: 256
+    max_num_points: 50
+    x_range: [-2, 2]
+    t_noise: null
+valid:  !include configs/gp/matern/datasets_test.yaml
+test:   !include configs/gp/matern/datasets_test.yaml
+shapes: !include configs/gp/gp_shapes.yaml

@@ -1,0 +1,4 @@
+seed: 3
+num_epochs: 15
+valid_every: 1
+save_every: 5

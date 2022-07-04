@@ -1,0 +1,12 @@
+datasets:
+  test:
+    name: LotkaVolterra
+    type: Sim2Real
+    sim2real:
+      name: LotkaVolterra
+      split: real
+      root: ./datasets
+    batch_size: 128
+    shuffle: False
+    drop_last: False
+test: !include configs/sim2real/lotka_volterra/test.yaml

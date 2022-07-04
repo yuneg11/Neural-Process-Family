@@ -1,0 +1,5 @@
+datasets:  !include configs/image/mnist/datasets.yaml
+model:     !include configs/image/models/anp.yaml
+optimizer: !include configs/image/optimizer.yaml
+train:     !include configs/image/mnist/train.yaml
+test:      !include configs/image/mnist/test.yaml

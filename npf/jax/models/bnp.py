@@ -7,7 +7,7 @@ from jax import random
 from flax import linen as nn
 
 from .cnp import CNPBase
-from .attncnp import AttnCNPBase
+from .canp import CANPBase
 from .. import functional as F
 from ..modules import (
     MLP,
@@ -18,9 +18,9 @@ from ..modules import (
 
 __all__ = [
     "BNPBase",
-    "AttnBNPBase",
+    "BANPBase",
     "BNP",
-    "AttnBNP",
+    "BANP",
 ]
 
 
@@ -242,6 +242,7 @@ class BNPMixin(nn.Module):
         *,
         num_samples: int = 1,
         as_mixture: bool = True,
+        return_aux: bool = False,
     ) -> Array:
 
         ll, r_ctx = self.log_likelihood(                                                            # (1), [batch, context, r_dim]
@@ -260,7 +261,11 @@ class BNPMixin(nn.Module):
         ll_base = F.masked_mean(ll_base, mask_tar)                                                  # (1)
 
         loss = -(ll + ll_base)                                                                      # (1)
-        return loss                                                                                 # (1)
+
+        if return_aux:
+            return loss, dict(ll=ll, ll_base=ll_base)
+        else:
+            return loss
 
 
 class BNPBase(BNPMixin, CNPBase):
@@ -269,9 +274,9 @@ class BNPBase(BNPMixin, CNPBase):
     """
 
 
-class AttnBNPBase(BNPMixin, AttnCNPBase):
+class BANPBase(BNPMixin, CANPBase):
     """
-    Base class of Attentive Bootstrapping Neural Process
+    Base class of Bootstrapping Attentive Neural Process
     """
 
 
@@ -293,9 +298,9 @@ class BNP:
         )
 
 
-class AttnBNP:
+class BANP:
     """
-    Attentive Bootstrapping Neural Process
+    Bootstrapping Attentive Neural Process
     """
 
     def __new__(
@@ -324,7 +329,7 @@ class AttnBNP:
         cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=ca_heads)
         decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
 
-        return AttnBNPBase(
+        return BANPBase(
             encoder=encoder,
             self_attention=self_attention,
             transform_qk=transform_qk,

@@ -1,0 +1,46 @@
+train:
+  name: CelebA
+  type: Image
+  batch_size: 32
+  shuffle: True
+  drop_last: True
+  image:
+    name: CelebA
+    root: ./datasets
+    split: train
+    full_tar: False
+    max_num_points: 200
+    flatten: False
+valid:
+  name: CelebA
+  type: Image
+  batch_size: 64
+  shuffle: False
+  drop_last: True
+  image:
+    name: CelebA
+    root: ./datasets
+    split: valid
+    full_tar: True
+    max_num_points: 200
+    flatten: False
+test:
+  name: CelebA
+  type: Image
+  batch_size: 64
+  shuffle: False
+  drop_last: True
+  image:
+    name: CelebA
+    root: ./datasets
+    split: test
+    full_tar: True
+    max_num_points: 200
+    flatten: False
+shapes:
+  x_ctx: [-1, 32, 32, 2]
+  y_ctx: [-1, 32, 32, 3]
+  x_tar: [-1, 32, 32, 2]
+  y_tar: [-1, 32, 32, 3]
+  mask_ctx: [-1, 32, 32]
+  mask_tar: [-1, 32, 32]

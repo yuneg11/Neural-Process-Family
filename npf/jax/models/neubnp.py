@@ -6,7 +6,7 @@ from jax.scipy import stats
 from flax import linen as nn
 
 from .cnp import CNPBase
-from .attncnp import AttnCNPBase
+from .canp import CANPBase
 from .. import functional as F
 from ..modules import (
     MLP,
@@ -17,9 +17,9 @@ from ..modules import (
 
 __all__ = [
     "NeuBNPBase",
-    "AttnNeuBNPBase",
+    "NeuBANPBase",
     "NeuBNP",
-    "AttnNeuBNP",
+    "NeuBANP",
 ]
 
 
@@ -130,6 +130,7 @@ class NeuBNPMixin(nn.Module):
         *,
         num_samples: int = 1,
         as_mixture: bool = True,
+        return_aux: bool = False,
     ) -> Array:
 
         mu, sigma, w_ctx = self(                                                                    # [batch, sample, *target, y_dim] x 2, [batch, sample, context, 1]
@@ -148,17 +149,18 @@ class NeuBNPMixin(nn.Module):
         mask_ex_tar = mask_tar & (~mask_ctx)                                                        # [batch, *point (= *context = *target)]
         w_ctx = F.unflatten(w_ctx[..., 0], ll.shape[2:], axis=2)                                    # [batch, sample, *point (= *context)]
 
+        axis = [-d for d in range(1, mask_tar.ndim)]
+
         if as_mixture:
             ll_tar = F.logmeanexp(ll,         axis=1)                                               # [batch, *point]
             ll_ctx = F.logmeanexp(ll * w_ctx, axis=1)                                               # [batch, *point]
 
-            ll_tar = F.masked_sum(ll_tar, mask_ex_tar, axis=-1)                                     # [batch]
-            ll_ctx = F.masked_sum(ll_ctx, mask_ctx,    axis=-1)                                     # [batch]
+            ll_tar = F.masked_sum(ll_tar, mask_ex_tar, axis=axis)                                   # [batch]
+            ll_ctx = F.masked_sum(ll_ctx, mask_ctx,    axis=axis)                                   # [batch]
 
-            ll = (ll_tar + ll_ctx) / jnp.sum(mask_tar)                                              # [batch]
+            ll = (ll_tar + ll_ctx) / jnp.sum(mask_tar, axis=axis)                                   # [batch]
             loss = -jnp.mean(ll)                                                                    # (1)
         else:
-            axis = [-d for d in range(1, mask_tar.ndim)]
             ll_tar = F.masked_sum(ll,         mask_ex_tar, axis=axis, non_mask_axis=1)              # [batch, sample]
             ll_ctx = F.masked_sum(ll * w_ctx, mask_ctx,    axis=axis, non_mask_axis=1)              # [batch, sample]
 
@@ -166,7 +168,10 @@ class NeuBNPMixin(nn.Module):
             ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
             loss = -jnp.mean(ll)                                                                    # (1)
 
-        return loss
+        if return_aux:
+            return loss, dict(ll=ll)
+        else:
+            return loss
 
 
 class NeuBNPBase(NeuBNPMixin, CNPBase):
@@ -175,9 +180,9 @@ class NeuBNPBase(NeuBNPMixin, CNPBase):
     """
 
 
-class AttnNeuBNPBase(NeuBNPMixin, AttnCNPBase):
+class NeuBANPBase(NeuBNPMixin, CANPBase):
     """
-    Base class of Attentive Neural Bootstrapping Neural Process
+    Base class of Neural Bootstrapping Attentive Neural Process
     """
 
 
@@ -199,9 +204,9 @@ class NeuBNP:
         )
 
 
-class AttnNeuBNP:
+class NeuBANP:
     """
-    Attentive Neural Bootstrapping Neural Process
+    Neural Bootstrapping Attentive Neural Process
     """
 
     def __new__(
@@ -230,7 +235,7 @@ class AttnNeuBNP:
         cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=ca_heads)
         decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
 
-        return AttnNeuBNPBase(
+        return NeuBANPBase(
             encoder=encoder,
             self_attention=self_attention,
             transform_qk=transform_qk,

@@ -218,12 +218,13 @@ class NPBase(NPF):
         *,
         num_latents: int = 1,
         as_mixture: bool = False,
+        return_aux: bool = False,
     ) -> Array:
 
         if self.loss_type == "vi":
             return self.vi_loss(                                                                    # (1)
                 x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-                num_latents=num_latents, as_mixture=as_mixture,
+                num_latents=num_latents, as_mixture=as_mixture, return_aux=return_aux,
             )
         elif self.loss_type == "ml":
             return self.ml_loss(                                                                    # (1)
@@ -242,6 +243,7 @@ class NPBase(NPF):
         *,
         num_latents: int = 1,
         as_mixture: bool = False,
+        return_aux: bool = False,
     ) -> Array:
 
         ll, (z_mu_ctx, z_sigma_ctx) = self.log_likelihood(                                          # (1), ([batch, 1, z_dim] x 2)
@@ -263,7 +265,11 @@ class NPBase(NPF):
         )
 
         loss = -ll + kld                                                                            # (1)
-        return loss
+
+        if return_aux:
+            return loss, dict(ll=ll, kld=kld)
+        else:
+            return loss
 
     def ml_loss(
         self,

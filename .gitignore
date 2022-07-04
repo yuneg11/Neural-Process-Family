@@ -3,6 +3,8 @@
 /dist
 /np_family.egg-info
 /docs/_build
-/outs
 /_*
+
+/outs
+/datasets
 *.pyc

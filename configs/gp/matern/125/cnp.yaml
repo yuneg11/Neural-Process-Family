@@ -1,0 +1,5 @@
+datasets:  !include configs/gp/matern/125/datasets.yaml
+model:     !include configs/gp/models/cnp.yaml
+optimizer: !include configs/gp/optimizer.yaml
+train:     !include configs/gp/matern/125/train.yaml
+test:      !include configs/gp/matern/test.yaml
