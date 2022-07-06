@@ -189,7 +189,7 @@ class BNPMixin(nn.Module):
         sigma = F.unflatten(sigma, shape_tar, axis=-2)                                              # [batch, sample, *target, y_dim]
 
         if return_aux:
-            return mu, sigma, r_ctx                                                                 # [batch, sample, *target, y_dim] x 2, [batch, target, r_dim]
+            return mu, sigma, (r_ctx,)                                                              # [batch, sample, *target, y_dim] x 2, [batch, target, r_dim]
         else:
             return mu, sigma                                                                        # [batch, sample, *target, y_dim] x 2
 
@@ -203,7 +203,8 @@ class BNPMixin(nn.Module):
         mask_tar: Array[B, [T]],
         *,
         num_samples: int = 1,
-        as_mixture: bool = True,
+        train: bool = False,
+        joint: bool = False,
         return_aux: bool = False,
     ) -> Union[
         Array,
@@ -211,23 +212,23 @@ class BNPMixin(nn.Module):
     ]:
 
         mu, sigma, aux = \
-            self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples=num_samples, return_aux=True) # [batch, sample, *target, y_dim] x 2, [batch, target, r_dim]
+            self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples=num_samples, return_aux=True) # [batch, sample, *target, y_dim] x 2, ([batch, target, r_dim],)
 
         s_y_tar = jnp.expand_dims(y_tar, axis=1)                                                    # [batch, 1,      *target, y_dim]
         log_prob = stats.norm.logpdf(s_y_tar, mu, sigma)                                            # [batch, sample, *target, y_dim]
         ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, sample, *target]
 
-        if as_mixture:
-            ll = F.logmeanexp(ll, axis=1)                                                           # [batch, *target]
-            ll = F.masked_mean(ll, mask_tar)                                                        # (1)
-        else:
+        if train and joint:
             axis = [-d for d in range(1, mask_tar.ndim)]
-            ll = F.masked_mean(ll, mask_tar, axis=axis, non_mask_axis=1)                            # [batch, sample]
+            ll = F.masked_sum(ll, mask_tar, axis=axis, non_mask_axis=1)                             # [batch, sample]
             ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
             ll = jnp.mean(ll)                                                                       # (1)
+        else:
+            ll = F.logmeanexp(ll, axis=1)                                                           # [batch, *target]
+            ll = F.masked_mean(ll, mask_tar)                                                        # (1)
 
         if return_aux:
-            return ll, aux                                                                          # (1), [batch, target, r_dim]
+            return ll, aux                                                                          # (1), ([batch, target, r_dim],)
         else:
             return ll                                                                               # (1)
 
@@ -241,13 +242,13 @@ class BNPMixin(nn.Module):
         mask_tar: Array[B, [T]],
         *,
         num_samples: int = 1,
-        as_mixture: bool = True,
+        joint: bool = False,
         return_aux: bool = False,
     ) -> Array:
 
-        ll, r_ctx = self.log_likelihood(                                                            # (1), [batch, context, r_dim]
+        ll, (r_ctx,) = self.log_likelihood(                                                         # (1), [batch, context, r_dim]
             x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-            num_samples=num_samples, as_mixture=as_mixture, return_aux=True,
+            num_samples=num_samples, train=True, joint=joint, return_aux=True,
         )
 
         x_tar    = F.flatten(x_tar,    start=1, stop=-1)                                            # [batch, target, x_dim]

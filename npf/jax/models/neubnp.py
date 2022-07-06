@@ -85,7 +85,7 @@ class NeuBNPMixin(nn.Module):
         sigma = F.unflatten(sigma, shape_tar, axis=-2)                                              # [batch, sample, *target, y_dim]
 
         if return_aux:
-            return mu, sigma, w_ctx                                                                 # [batch, sample, *target, y_dim] x 2, [batch, sample, context, 1]
+            return mu, sigma, (w_ctx,)                                                              # [batch, sample, *target, y_dim] x 2, [batch, sample, context, 1]
         else:
             return mu, sigma                                                                        # [batch, sample, *target, y_dim] x 2
 
@@ -99,7 +99,8 @@ class NeuBNPMixin(nn.Module):
         mask_tar: Array[B, [T]],
         *,
         num_samples: int = 1,
-        as_mixture: bool = True,
+        train: bool = False,
+        joint: bool = False,
     ) -> Array:
 
         mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples=num_samples)          # [batch, sample, *target, y_dim] x 2
@@ -108,14 +109,14 @@ class NeuBNPMixin(nn.Module):
         log_prob = stats.norm.logpdf(s_y_tar, mu, sigma)                                            # [batch, sample, *target, y_dim]
         ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, sample, *target]
 
-        if as_mixture:
-            ll = F.logmeanexp(ll, axis=1)                                                           # [batch, *target]
-            ll = F.masked_mean(ll, mask_tar)                                                        # (1)
-        else:
+        if train and joint:
             axis = [-d for d in range(1, mask_tar.ndim)]
-            ll = F.masked_mean(ll, mask_tar, axis=axis, non_mask_axis=1)                            # [batch, sample]
+            ll = F.masked_sum(ll, mask_tar, axis=axis, non_mask_axis=1)                             # [batch, sample]
             ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
             ll = jnp.mean(ll)                                                                       # (1)
+        else:
+            ll = F.logmeanexp(ll, axis=1)                                                           # [batch, *target]
+            ll = F.masked_mean(ll, mask_tar)                                                        # (1)
 
         return ll                                                                                   # (1)
 
@@ -129,11 +130,12 @@ class NeuBNPMixin(nn.Module):
         mask_tar: Array[B, [T]],
         *,
         num_samples: int = 1,
-        as_mixture: bool = True,
+        train: bool = True,
+        joint: bool = False,
         return_aux: bool = False,
     ) -> Array:
 
-        mu, sigma, w_ctx = self(                                                                    # [batch, sample, *target, y_dim] x 2, [batch, sample, context, 1]
+        mu, sigma, (w_ctx,) = self(                                                                 # [batch, sample, *target, y_dim] x 2, ([batch, sample, context, 1],)
             x_ctx, y_ctx, x_tar, mask_ctx, mask_tar,
             num_samples=num_samples, return_aux=True,
         )
@@ -151,7 +153,12 @@ class NeuBNPMixin(nn.Module):
 
         axis = [-d for d in range(1, mask_tar.ndim)]
 
-        if as_mixture:
+        if train and joint:
+            ll_tar = F.masked_sum(ll,         mask_ex_tar, axis=axis, non_mask_axis=1)              # [batch, sample]
+            ll_ctx = F.masked_sum(ll * w_ctx, mask_ctx,    axis=axis, non_mask_axis=1)              # [batch, sample]
+            ll = (ll_tar + ll_ctx)                                                                  # [batch, sample]
+            ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
+        else:
             ll_tar = F.logmeanexp(ll,         axis=1)                                               # [batch, *point]
             ll_ctx = F.logmeanexp(ll * w_ctx, axis=1)                                               # [batch, *point]
 
@@ -159,14 +166,8 @@ class NeuBNPMixin(nn.Module):
             ll_ctx = F.masked_sum(ll_ctx, mask_ctx,    axis=axis)                                   # [batch]
 
             ll = (ll_tar + ll_ctx) / jnp.sum(mask_tar, axis=axis)                                   # [batch]
-            loss = -jnp.mean(ll)                                                                    # (1)
-        else:
-            ll_tar = F.masked_sum(ll,         mask_ex_tar, axis=axis, non_mask_axis=1)              # [batch, sample]
-            ll_ctx = F.masked_sum(ll * w_ctx, mask_ctx,    axis=axis, non_mask_axis=1)              # [batch, sample]
 
-            ll = (ll_tar + ll_ctx) / jnp.expand_dims(jnp.sum(mask_tar, axis=axis), axis=1)          # [batch, sample]
-            ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
-            loss = -jnp.mean(ll)                                                                    # (1)
+        loss = -jnp.mean(ll)                                                                        # (1)
 
         if return_aux:
             return loss, dict(ll=ll)

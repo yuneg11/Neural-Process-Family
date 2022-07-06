@@ -7,14 +7,14 @@ from flax import linen as nn
 
 from .base import NPF
 from .. import functional as F
-from ..modules import (
-    MLP,
-)
+from ..modules import MLP
+
 
 __all__ = [
     "NPBase",
     "NP",
 ]
+
 
 class NPBase(NPF):
     """
@@ -179,7 +179,7 @@ class NPBase(NPF):
         mask_tar: Array[B, [T]],
         *,
         num_latents: int = 1,
-        as_mixture: bool = True,
+        train: bool = False,
         return_aux: bool = False,
     ) -> Union[
         Array,
@@ -193,14 +193,14 @@ class NPBase(NPF):
         log_prob = stats.norm.logpdf(s_y_tar, mu, sigma)                                            # [batch, latent, *target, y_dim]
         ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, latent, *target]
 
-        if as_mixture:
-            ll = F.logmeanexp(ll, axis=1)                                                           # [batch, *target]
-            ll = F.masked_mean(ll, mask_tar)                                                        # (1)
-        else:
+        if train:
             axis = [-d for d in range(1, mask_tar.ndim)]
-            ll = F.masked_mean(ll, mask_tar, axis=axis, non_mask_axis=1)                            # [batch, latent]
+            ll = F.masked_sum(ll, mask_tar, axis=axis, non_mask_axis=1)                             # [batch, latent]
             ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
             ll = jnp.mean(ll)                                                                       # (1)
+        else:
+            ll = F.logmeanexp(ll, axis=1)                                                           # [batch, *target]
+            ll = F.masked_mean(ll, mask_tar)                                                        # (1)
 
         if return_aux:
             return ll, aux                                                                          # (1), ([batch, 1, z_dim] x 2)
@@ -217,19 +217,18 @@ class NPBase(NPF):
         mask_tar: Array[B, [T]],
         *,
         num_latents: int = 1,
-        as_mixture: bool = False,
         return_aux: bool = False,
     ) -> Array:
 
         if self.loss_type == "vi":
             return self.vi_loss(                                                                    # (1)
                 x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-                num_latents=num_latents, as_mixture=as_mixture, return_aux=return_aux,
+                num_latents=num_latents, return_aux=return_aux,
             )
         elif self.loss_type == "ml":
             return self.ml_loss(                                                                    # (1)
                 x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-                num_latents=num_latents, as_mixture=as_mixture,
+                num_latents=num_latents,
             )
 
     def vi_loss(
@@ -242,13 +241,12 @@ class NPBase(NPF):
         mask_tar: Array[B, [T]],
         *,
         num_latents: int = 1,
-        as_mixture: bool = False,
         return_aux: bool = False,
     ) -> Array:
 
         ll, (z_mu_ctx, z_sigma_ctx) = self.log_likelihood(                                          # (1), ([batch, 1, z_dim] x 2)
             x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-            num_latents=num_latents, as_mixture=as_mixture, return_aux=True,
+            num_latents=num_latents, train=True, return_aux=True,
         )
 
         x_tar    = F.flatten(x_tar,    start=1, stop=-1)                                            # [batch, target,  x_dim]
@@ -281,12 +279,12 @@ class NPBase(NPF):
         mask_tar: Array[B, [T]],
         *,
         num_latents: int = 1,
-        as_mixture: bool = False,
+        train: bool = True,
     ) -> Array:
 
         loss = -self.log_likelihood(                                                                # (1)
             x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-            num_latents=num_latents, as_mixture=as_mixture,
+            num_latents=num_latents, train=True,
         )
         return loss                                                                                 # (1)
 
