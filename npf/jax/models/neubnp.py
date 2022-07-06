@@ -113,7 +113,7 @@ class NeuBNPMixin(nn.Module):
             axis = [-d for d in range(1, mask_tar.ndim)]
             ll = F.masked_sum(ll, mask_tar, axis=axis, non_mask_axis=1)                             # [batch, sample]
             ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
-            ll = jnp.mean(ll)                                                                       # (1)
+            ll = jnp.mean(ll / jnp.sum(mask_tar, axis=axis))                                        # (1)
         else:
             ll = F.logmeanexp(ll, axis=1)                                                           # [batch, *target]
             ll = F.masked_mean(ll, mask_tar)                                                        # (1)

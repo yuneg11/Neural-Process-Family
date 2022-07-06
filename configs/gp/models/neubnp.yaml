@@ -5,6 +5,7 @@ kwargs:
   decoder_dims: [128, 128, 128]
 train_kwargs:
   num_samples: 10
+  joint: False
   return_aux: True
 valid_kwargs:
   num_samples: 10
