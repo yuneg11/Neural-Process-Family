@@ -7,6 +7,8 @@ from flax import linen as nn
 
 from .base import NPF
 from .. import functional as F
+from ..data import NPData
+from ..utils import npf_io
 from ..modules import MLP
 
 
@@ -123,40 +125,27 @@ class NPBase(NPF):
         return mu, sigma                                                                            # [batch, latent, target, y_dim] x 2
 
     @nn.compact
-    def __call__(
-        self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
-        *,
-        num_latents: int = 1,
-        return_aux: bool = False,
-    ) -> Union[
+    @npf_io
+    def __call__(self, data: NPData, *, num_latents: int = 1, training: bool = False) -> Union[
         Tuple[Array[B, L, [T], Y], Array[B, L, [T], Y]],
         Tuple[Array[B, L, [T], Y], Array[B, L, [T], Y], Tuple[Array[B, 1, Z], Array[B, 1, Z]]],
     ]:
-
-        # Flatten
-        shape_tar = x_tar.shape[1:-1]
-        x_ctx    = F.flatten(x_ctx,    start=1, stop=-1)                                            # [batch, context, x_dim]
-        y_ctx    = F.flatten(y_ctx,    start=1, stop=-1)                                            # [batch, context, y_dim]
-        x_tar    = F.flatten(x_tar,    start=1, stop=-1)                                            # [batch, target,  x_dim]
-        mask_ctx = F.flatten(mask_ctx, start=1)                                                     # [batch, context]
-        mask_tar = F.flatten(mask_tar, start=1)                                                     # [batch, target]
-
         # Algorithm
-        z_i_ctx, r_i_ctx = self._encode(x_ctx, y_ctx, mask_ctx)                                     # [batch, context, z_dim x 2], ([batch, context, r_dim] | None)
-        z_mu_ctx, z_sigma_ctx = self._latent_dist(z_i_ctx, mask_ctx)                                # [batch, 1,       z_dim] x 2
-        z_ctx = self._latent_sample(z_mu_ctx, z_sigma_ctx, num_latents)                             # [batch, latent, 1, z_dim]
+        if training:
+            z_i, r_i_ctx = self._encode(data.x_tar, data.y_tar, data.mask_tar)                      # [batch, context, z_dim x 2], ([batch, context, r_dim] | None)
+            z_mu, z_sigma = self._latent_dist(z_i, data.mask_tar)                                   # [batch, 1,       z_dim] x 2
+        else:
+            z_i, r_i_ctx = self._encode(data.x_ctx, data.y_ctx, data.mask_ctx)                      # [batch, context, z_dim x 2], ([batch, context, r_dim] | None)
+            z_mu, z_sigma = self._latent_dist(z_i, data.mask_ctx)                                   # [batch, 1,       z_dim] x 2
+
+        z = self._latent_sample(z_mu, z_sigma, num_latents)                                         # [batch, latent, 1, z_dim]
 
         if r_i_ctx is None:
             r_ctx = None
         else:
-            r_ctx = self._determ_aggregate(x_tar, x_ctx, r_i_ctx, mask_ctx)                         # [batch, target, r_dim]
+            r_ctx = self._determ_aggregate(data.x_tar, data.x_ctx, r_i_ctx, data.mask_ctx)                         # [batch, target, r_dim]
 
-        mu, sigma = self._decode(x_tar, z_ctx, r_ctx, mask_tar)                                     # [batch, latent, target, y_dim] x 2
+        mu, sigma = self._decode(data.x_tar, z, r_ctx, data.mask_tar)                                         # [batch, latent, target, y_dim] x 2
 
         # Unflatten and mask
         mu    = F.masked_fill(mu,    mask_tar, fill_value=0.,   non_mask_axis=(1, -1))              # [batch, latent, target, y_dim]
@@ -164,70 +153,46 @@ class NPBase(NPF):
         mu    = F.unflatten(mu,    shape_tar, axis=-2)                                              # [batch, latent, *target, y_dim]
         sigma = F.unflatten(sigma, shape_tar, axis=-2)                                              # [batch, latent, *target, y_dim]
 
-        if return_aux:
-            return mu, sigma, (z_mu_ctx, z_sigma_ctx)                                               # [batch, latent, *target, y_dim] x 2, ([batch, 1, z_dim] x 2)
+        if training:
+            return mu, sigma, (z_mu, z_sigma)                                                       # [batch, latent, *target, y_dim] x 2, ([batch, 1, z_dim] x 2)
         else:
             return mu, sigma                                                                        # [batch, latent, *target, y_dim] x 2
 
-    def log_likelihood(
-        self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
-        *,
-        num_latents: int = 1,
-        train: bool = False,
-        return_aux: bool = False,
-    ) -> Union[
+    @npf_io
+    def log_likelihood(self, data: NPData, *, num_latents: int = 1, training: bool = False) -> Union[
         Array,
         Tuple[Array, Tuple[Array[B, 1, Z], Array[B, 1, Z]]],
     ]:
 
         mu, sigma, aux = \
-            self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_latents=num_latents, return_aux=True) # [batch, latent, *target, y_dim] x 2, ([batch, 1, z_dim] x 2)
+            self(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar, num_latents=num_latents, training=training) # [batch, latent, *target, y_dim] x 2, ([batch, 1, z_dim] x 2)
 
         s_y_tar = jnp.expand_dims(y_tar, axis=1)                                                    # [batch, 1,      *target, y_dim]
         log_prob = stats.norm.logpdf(s_y_tar, mu, sigma)                                            # [batch, latent, *target, y_dim]
         ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, latent, *target]
 
-        if train:
+        if training:
             axis = [-d for d in range(1, mask_tar.ndim)]
             ll = F.masked_sum(ll, mask_tar, axis=axis, non_mask_axis=1)                             # [batch, latent]
             ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
-            ll = jnp.mean(ll / jnp.sum(mask_tar, axis=axis))                                        # (1)
+            # ll = jnp.mean(ll / jnp.sum(mask_tar, axis=axis))                                        # (1)
+            return ll, aux                                                                          # [batch], ([batch, 1, z_dim] x 2)
         else:
             ll = F.logmeanexp(ll, axis=1)                                                           # [batch, *target]
             ll = F.masked_mean(ll, mask_tar)                                                        # (1)
-
-        if return_aux:
-            return ll, aux                                                                          # (1), ([batch, 1, z_dim] x 2)
-        else:
             return ll                                                                               # (1)
 
-    def loss(
-        self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
-        *,
-        num_latents: int = 1,
-        return_aux: bool = False,
-    ) -> Array:
+    @npf_io
+    def loss(self, data: NPData, *, num_latents: int = 1, return_aux: bool = False) -> Array:
 
         if self.loss_type == "vi":
             return self.vi_loss(                                                                    # (1)
-                x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
+                data,
                 num_latents=num_latents, return_aux=return_aux,
             )
         elif self.loss_type == "ml":
             return self.ml_loss(                                                                    # (1)
-                x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
+                data,
                 num_latents=num_latents,
             )
 
@@ -243,26 +208,46 @@ class NPBase(NPF):
         num_latents: int = 1,
         return_aux: bool = False,
     ) -> Array:
+        if num_latents == 1:
+            ll, (z_mu, z_sigma) = self.log_likelihood(                                          # (1), ([batch, 1, z_dim] x 2)
+                x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
+                num_latents=num_latents, training=True, return_aux=True,
+            )
 
-        ll, (z_mu_ctx, z_sigma_ctx) = self.log_likelihood(                                          # (1), ([batch, 1, z_dim] x 2)
-            x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-            num_latents=num_latents, train=True, return_aux=True,
-        )
+            x_ctx    = F.flatten(x_ctx,    start=1, stop=-1)                                            # [batch, target,  x_dim]
+            y_ctx    = F.flatten(y_ctx,    start=1, stop=-1)                                            # [batch, target,  y_dim]
+            mask_tar = F.flatten(mask_tar, start=1)                                                     # [batch, target]
 
-        x_tar    = F.flatten(x_tar,    start=1, stop=-1)                                            # [batch, target,  x_dim]
-        y_tar    = F.flatten(y_tar,    start=1, stop=-1)                                            # [batch, target,  y_dim]
-        mask_tar = F.flatten(mask_tar, start=1)                                                     # [batch, target]
+            z_i_ctx = self._encode(x_ctx, y_ctx, mask_tar, latent_only=True)                            # [batch, target, z_dim x 2]
+            z_mu_ctx, z_sigma_ctx = self._latent_dist(z_i_ctx, mask_ctx)                                # [batch, 1,      z_dim] x 2
 
-        z_i_tar = self._encode(x_tar, y_tar, mask_tar, latent_only=True)                            # [batch, target, z_dim x 2]
-        z_mu_tar, z_sigma_tar = self._latent_dist(z_i_tar, mask_tar)                                # [batch, 1,      z_dim] x 2
+            kld = jnp.mean(                                                                             # (1)
+                - jnp.log(z_sigma_ctx) + jnp.log(z_sigma)
+                + (jnp.square(z_sigma_ctx) + jnp.square(z_mu - z_mu_ctx)) / (2 * jnp.square(z_sigma))
+                - 0.5
+            )
 
-        kld = jnp.mean(                                                                             # (1)
-            jnp.log(z_sigma_ctx) - jnp.log(z_sigma_tar)
-            + (jnp.square(z_sigma_tar) + jnp.square(z_mu_tar - z_mu_ctx)) / (2 * jnp.square(z_sigma_ctx))
-            - 0.5
-        )
+            loss = -ll + kld                                                                            # (1)
+        else:
+            ll, (z_mu_ctx, z_sigma_ctx) = self.log_likelihood(                                          # (1), ([batch, 1, z_dim] x 2)
+                x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
+                num_latents=num_latents, training=True, return_aux=True,
+            )
 
-        loss = -ll + kld                                                                            # (1)
+            x_ctx    = F.flatten(x_ctx,    start=1, stop=-1)                                            # [batch, target,  x_dim]
+            y_ctx    = F.flatten(y_ctx,    start=1, stop=-1)                                            # [batch, target,  y_dim]
+            mask_tar = F.flatten(mask_tar, start=1)                                                     # [batch, target]
+
+            z_i_ctx = self._encode(x_ctx, y_ctx, mask_tar, latent_only=True)                            # [batch, target, z_dim x 2]
+            z_mu_ctx, z_sigma_ctx = self._latent_dist(z_i_ctx, mask_ctx)                                # [batch, 1,      z_dim] x 2
+
+            kld = jnp.mean(                                                                             # (1)
+                - jnp.log(z_sigma_ctx) + jnp.log(z_sigma)
+                + (jnp.square(z_sigma_ctx) + jnp.square(z_mu - z_mu_ctx)) / (2 * jnp.square(z_sigma))
+                - 0.5
+            )
+
+            loss = -ll + kld                                                                            # (1)
 
         if return_aux:
             return loss, dict(ll=ll, kld=kld)
@@ -279,12 +264,12 @@ class NPBase(NPF):
         mask_tar: Array[B, [T]],
         *,
         num_latents: int = 1,
-        train: bool = True,
+        training: bool = True,
     ) -> Array:
 
         loss = -self.log_likelihood(                                                                # (1)
             x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-            num_latents=num_latents, train=True,
+            num_latents=num_latents, training=True,
         )
         return loss                                                                                 # (1)
 

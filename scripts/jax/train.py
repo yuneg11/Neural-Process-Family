@@ -22,7 +22,7 @@ from nxcl.rich import Progress
 from nxcl.config import load_config, save_config, add_config_arguments, ConfigDict
 from nxcl.experimental.utils import get_experiment_name, setup_logger, AverageMeter
 
-from npf.jax import models
+from npf.jax import models, NPData
 from npf.jax.data import get_shard_collate, build_dataloader
 
 
@@ -40,12 +40,9 @@ def sync_metric(metric):
 
 def get_train_step(model, **kwargs):
     @partial(jax.pmap, axis_name="batch")
-    def _train_step(state, rngs, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar):
+    def _train_step(state, rngs, batch):
         def loss_fn(params):
-            outs = model.apply(
-                params, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-                method=model.loss, rngs=rngs, **kwargs,
-            )
+            outs = model.apply(params, batch, method=model.loss, rngs=rngs, **kwargs)
             if isinstance(outs, tuple):
                 loss, aux = outs
             else:
@@ -61,8 +58,8 @@ def get_train_step(model, **kwargs):
         else:
             return state, dict(loss=loss, aux=aux)
 
-    def train_step(state, rngs, *, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar):
-        state, metric = _train_step(state, rngs, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)
+    def train_step(state, rngs, batch):
+        state, metric = _train_step(state, rngs, batch)
         return state, sync_metric(metric)
 
     return train_step
@@ -70,15 +67,12 @@ def get_train_step(model, **kwargs):
 
 def get_valid_step(model, **kwargs):
     @partial(jax.pmap, axis_name="batch")
-    def _valid_step(state, rngs, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar):
-        ll = model.apply(
-            state.params, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-            method=model.log_likelihood, rngs=rngs, **kwargs,
-        )
+    def _valid_step(state, rngs, batch):
+        ll = model.apply(state.params, batch, method=model.log_likelihood, rngs=rngs, **kwargs)
         return ll
 
-    def valid_step(state, rngs, *, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar):
-        metric = _valid_step(state, rngs, x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)
+    def valid_step(state, rngs, batch):
+        metric = _valid_step(state, rngs, batch)
         return sync_metric(metric)
 
     return valid_step
@@ -104,17 +98,18 @@ def main(config, output_dir):
         raise ValueError(f"Unknown model: {config.model.name}")
 
     model = getattr(models, config.model.name)(
-        y_dim=config.datasets.shapes.y_ctx[-1],
+        y_dim=config.datasets.shapes.y[-1],
         **config.model.get("kwargs", {}),
     )
 
     params = model.init(
         init_rngs,
-        x_ctx=jnp.zeros((num_devices, *config.datasets.shapes.x_ctx[1:])),
-        y_ctx=jnp.zeros((num_devices, *config.datasets.shapes.y_ctx[1:])),
-        x_tar=jnp.zeros((num_devices, *config.datasets.shapes.x_tar[1:])),
-        mask_ctx=jnp.zeros((num_devices, *config.datasets.shapes.mask_ctx[1:])),
-        mask_tar=jnp.zeros((num_devices, *config.datasets.shapes.mask_tar[1:])),
+        NPData(
+            x=jnp.zeros((num_devices, *config.datasets.shapes.x)),
+            y=jnp.zeros((num_devices, *config.datasets.shapes.y)),
+            mask_ctx=jnp.zeros((num_devices, *config.datasets.shapes.mask_ctx)),
+            mask_tar=jnp.zeros((num_devices, *config.datasets.shapes.mask_tar)),
+        ),
         **config.model.get("init_kwargs", {}),
     )
 
@@ -184,9 +179,7 @@ def main(config, output_dir):
                 key, model_key = random.split(key)
 
                 state, train_metric = train_step(
-                    state, jax_utils.replicate(dict(sample=model_key)),
-                    x_ctx=batch.x_ctx, y_ctx=batch.y_ctx, mask_ctx=batch.mask_ctx,
-                    x_tar=batch.x,     y_tar=batch.y,     mask_tar=batch.mask,
+                    state=state, rngs=jax_utils.replicate(dict(sample=model_key)), batch=batch,
                 )
 
                 train_meter.update(loss=train_metric["loss"], n=len(batch.x))
@@ -212,21 +205,9 @@ def main(config, output_dir):
                     key, model_key = random.split(key)
                     replicated_rngs = jax_utils.replicate(dict(sample=model_key))
 
-                    ll_ctx = valid_step(
-                        state, replicated_rngs,
-                        x_ctx=batch.x_ctx, y_ctx=batch.y_ctx, mask_ctx=batch.mask_ctx,
-                        x_tar=batch.x_ctx, y_tar=batch.y_ctx, mask_tar=batch.mask_ctx,
-                    )
-                    ll_tar = valid_step(
-                        state, replicated_rngs,
-                        x_ctx=batch.x_ctx, y_ctx=batch.y_ctx, mask_ctx=batch.mask_ctx,
-                        x_tar=batch.x_tar, y_tar=batch.y_tar, mask_tar=batch.mask_tar,
-                    )
-                    ll = valid_step(
-                        state, replicated_rngs,
-                        x_ctx=batch.x_ctx, y_ctx=batch.y_ctx, mask_ctx=batch.mask_ctx,
-                        x_tar=batch.x,     y_tar=batch.y,     mask_tar=batch.mask,
-                    )
+                    ll_ctx = valid_step(state=state, rngs=replicated_rngs, batch=batch)
+                    ll_tar = valid_step(state=state, rngs=replicated_rngs, batch=batch)
+                    ll     = valid_step(state=state, rngs=replicated_rngs, batch=batch)
 
                     valid_meter.update(ll_ctx=ll_ctx, ll_tar=ll_tar, ll=ll, n=len(batch.x))
 

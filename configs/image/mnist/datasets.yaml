@@ -38,9 +38,7 @@ test:
     max_num_points: 200
     flatten: False
 shapes:
-  x_ctx: [-1, 28, 28, 2]
-  y_ctx: [-1, 28, 28, 1]
-  x_tar: [-1, 28, 28, 2]
-  y_tar: [-1, 28, 28, 1]
-  mask_ctx: [-1, 28, 28]
-  mask_tar: [-1, 28, 28]
+  x: [28, 28, 2]
+  y: [28, 28, 1]
+  mask_ctx: [28, 28]
+  mask_tar: [28, 28]

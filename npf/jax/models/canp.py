@@ -27,7 +27,7 @@ class CANPBase(CNPBase):
     transform_qk:    Optional[nn.Module] = None
     cross_attention: nn.Module = None
     decoder:         nn.Module = None
-    min_sigma:       float = 0.0
+    min_sigma:       float = 0.1
 
     def __post_init__(self):
         super().__post_init__()
@@ -59,16 +59,16 @@ class CANPBase(CNPBase):
     ) -> Array[B, ([M],), T, R]:
 
         # TODO: Temporary fix before implementing more efficient attention module
-        # r_i_q, shape = F.flatten(x_tar,   start=0, stop=-2, return_shape=True)                    # [batch x (*model), target,  x_dim]
-        # r_i_k        = F.flatten(x_ctx,   start=0, stop=-2)                                       # [batch x (*model), context, x_dim]
-        # r_i_ctx    = F.flatten(r_i_ctx, start=0, stop=-2)                                         # [batch x (*model), context, r_dim]
+        # r_i_q, shape = F.flatten(x_tar,   start=0, stop=-2, return_shape=True)                      # [batch x (*model), target,  x_dim]
+        # r_i_k        = F.flatten(x_ctx,   start=0, stop=-2)                                         # [batch x (*model), context, x_dim]
+        # r_i_ctx      = F.flatten(r_i_ctx, start=0, stop=-2)                                         # [batch x (*model), context, r_dim]
         r_i_q, r_i_k = x_tar, x_ctx
 
         if self.transform_qk is not None:
             r_i_q, r_i_k = self.transform_qk(r_i_q), self.transform_qk(r_i_k)                       # [batch x (*model), target, qk_dim], [batch x (*model), context, qk_dim]
 
         r_ctx = self.cross_attention(r_i_q, r_i_k, r_i_ctx, mask=mask_ctx)                          # [batch x (*model), target, r_dim]
-        # r_ctx = F.unflatten(r_ctx, shape, axis=0)                                                 # [batch, (*model), target, r_dim]
+        # r_ctx = F.unflatten(r_ctx, shape, axis=0)                                                   # [batch, (*model), target, r_dim]
         return r_ctx                                                                                # [batch, (*model), target, r_dim]
 
 
@@ -101,7 +101,7 @@ class CANP:
             transform_qk = None
 
         cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=ca_heads)
-        decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
+        decoder = MLP(hidden_features=decoder_dims, out_features=y_dim)
 
         return CANPBase(
             encoder=encoder,

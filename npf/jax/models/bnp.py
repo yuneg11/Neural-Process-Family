@@ -9,6 +9,8 @@ from flax import linen as nn
 from .cnp import CNPBase
 from .canp import CANPBase
 from .. import functional as F
+from ..data import NPData
+from ..utils import npf_io
 from ..modules import (
     MLP,
     MultiheadAttention,
@@ -25,7 +27,6 @@ __all__ = [
 
 
 # TODO: Further refactor sampling functions
-
 
 # Temporary implementation of a.ndim == 2 and p.ndim == 2
 def random_choice(key, a, shape: Sequence[int] = (), replace: bool = True, p = None, axis: int = 0):
@@ -145,29 +146,17 @@ class BNPMixin(nn.Module):
         return mu, sigma                                                                            # [batch, sample, target, y_dim] x 2
 
     @nn.compact
+    @npf_io(flatten=True)
     def __call__(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
         *,
         num_samples: int = 1,
-        return_aux: bool = False,
+        training: bool = False,
     ) -> Union[
         Tuple[Array[B, S, [T], Y], Array[B, S, [T], Y]],
         Tuple[Array[B, S, [T], Y], Array[B, S, [T], Y], Array[B, T, R]],
     ]:
-
-        # Flatten
-        shape_tar = x_tar.shape[1:-1]
-        x_ctx    = F.flatten(x_ctx,    start=1, stop=-1)                                            # [batch, context, x_dim]
-        y_ctx    = F.flatten(y_ctx,    start=1, stop=-1)                                            # [batch, context, y_dim]
-        x_tar    = F.flatten(x_tar,    start=1, stop=-1)                                            # [batch, target,  x_dim]
-        mask_ctx = F.flatten(mask_ctx, start=1)                                                     # [batch, context]
-        mask_tar = F.flatten(mask_tar, start=1)                                                     # [batch, target]
-
         # Algorithm
         b_mu, b_sigma = self._bootstrap(x_ctx, y_ctx, mask_ctx, num_samples)                        # [batch, sample, context, y_dim] x 2
         res_x_ctx, res_y_ctx = self._residual_sample(x_ctx, y_ctx, b_mu, b_sigma, mask_ctx)         # [batch, sample, context, x_dim], [batch, sample, context, y_dim]
@@ -183,12 +172,10 @@ class BNPMixin(nn.Module):
         mu, sigma = self._adaptation_decode(x_tar, r_ctx, res_r_ctx, mask_tar)                      # [batch, sample, target, y_dim] x 2
 
         # Unflatten and mask
-        mu    = F.masked_fill(mu,    mask_tar, fill_value=0.,   non_mask_axis=(1, -1))              # [batch, sample, target, y_dim]
-        sigma = F.masked_fill(sigma, mask_tar, fill_value=1e-6, non_mask_axis=(1, -1))              # [batch, sample, target, y_dim]
-        mu    = F.unflatten(mu,    shape_tar, axis=-2)                                              # [batch, sample, *target, y_dim]
-        sigma = F.unflatten(sigma, shape_tar, axis=-2)                                              # [batch, sample, *target, y_dim]
+        mu    = F.masked_fill(mu,    data.mask_tar, fill_value=0.,   non_mask_axis=(1, -1))         # [batch, sample, target, y_dim]
+        sigma = F.masked_fill(sigma, data.mask_tar, fill_value=1e-6, non_mask_axis=(1, -1))         # [batch, sample, target, y_dim]
 
-        if return_aux:
+        if training:
             return mu, sigma, (r_ctx,)                                                              # [batch, sample, *target, y_dim] x 2, [batch, target, r_dim]
         else:
             return mu, sigma                                                                        # [batch, sample, *target, y_dim] x 2

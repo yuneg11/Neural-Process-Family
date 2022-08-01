@@ -6,9 +6,9 @@ from flax import linen as nn
 
 from .base import NPF
 from .. import functional as F
-from ..modules import (
-    MLP,
-)
+from ..data import NPData
+from ..utils import npf_io
+from ..modules import MLP
 
 __all__ = [
     "CNPBase",
@@ -42,7 +42,7 @@ class CNPBase(NPF):
         xy = jnp.concatenate((x, y), axis=-1)                                                       # [batch, (*model), point, x_dim + y_dim]
         xy, shape = F.flatten(xy, start=0, stop=-2, return_shape=True)                              # [batch x (*model), point, x_dim + y_dim]
         r_i = self.encoder(xy)                                                                      # [batch x (*model), point, r_dim]
-        r_i = F.unflatten(r_i, shape, axis=0)                                                        # [batch, (*model), point, r_dim]
+        r_i = F.unflatten(r_i, shape, axis=0)                                                       # [batch, (*model), point, r_dim]
         return r_i                                                                                  # [batch, (*model), point, r_dim]
 
     def _aggregate(
@@ -65,9 +65,10 @@ class CNPBase(NPF):
     ) -> Tuple[Array[B, ([M],), T, Y], Array[B, ([M],), T, Y]]:
 
         query = jnp.concatenate((x_tar, r_ctx), axis=-1)                                            # [batch, (*model), target, x_dim + r_dim]
-
         query, shape = F.flatten(query, start=0, stop=-2, return_shape=True)                        # [batch x (*model), target, x_dim + y_dim]
-        mu_log_sigma = self.decoder(query)                                                          # [batch x (*model), target, y_dim x 2]
+        y = self.decoder(query)                                                                     # [batch x (*model), target, y_dim]
+
+        mu_log_sigma = nn.Dense(2 * y.shape[-1])(y)                                                 # [batch x (*model), target, y_dim x 2]
         mu_log_sigma = F.unflatten(mu_log_sigma, shape, axis=0)                                     # [batch, (*model), target, y_dim x 2]
 
         mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, (*model), target, y_dim] x 2
@@ -75,63 +76,48 @@ class CNPBase(NPF):
         return mu, sigma                                                                            # [batch, (*model), target, y_dim] x 2
 
     @nn.compact
+    @npf_io(flatten=True)
     def __call__(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
-    ) -> Tuple[Array[B, [T], Y], Array[B, [T], Y]]:
-
-        # Flatten
-        shape_tar = x_tar.shape[1:-1]
-        x_ctx    = F.flatten(x_ctx,    start=1, stop=-1)                                            # [batch, context, x_dim]
-        y_ctx    = F.flatten(y_ctx,    start=1, stop=-1)                                            # [batch, context, y_dim]
-        x_tar    = F.flatten(x_tar,    start=1, stop=-1)                                            # [batch, target,  x_dim]
-        mask_ctx = F.flatten(mask_ctx, start=1)                                                     # [batch, context]
-        mask_tar = F.flatten(mask_tar, start=1)                                                     # [batch, target]
+        data: NPData,
+        *,
+        training: bool = False,
+    ):
 
         # Algorithm
-        r_i_ctx = self._encode(x_ctx, y_ctx, mask_ctx)                                              # [batch, context, r_dim]
-        r_ctx = self._aggregate(x_tar, x_ctx, r_i_ctx, mask_ctx)                                    # [batch, target,  r_dim]
-        mu, sigma = self._decode(x_tar, r_ctx, mask_tar)                                            # [batch, target,  y_dim] x 2
+        r_i_ctx = self._encode(data.x_ctx, data.y_ctx, data.mask_ctx)                               # [batch, context, r_dim]
+        r_ctx = self._aggregate(data.x_tar, data.x_ctx, r_i_ctx, data.mask_ctx)                     # [batch, target,  r_dim]
+        mu, sigma = self._decode(data.x_tar, r_ctx, data.mask_tar)                                  # [batch, target,  y_dim] x 2
 
-        # Unflatten and mask
-        mu    = F.masked_fill(mu,    mask_tar, fill_value=0.,   non_mask_axis=-1)                   # [batch, target, y_dim]
-        sigma = F.masked_fill(sigma, mask_tar, fill_value=1e-6, non_mask_axis=-1)                   # [batch, target, y_dim]
-        mu    = F.unflatten(mu,    shape_tar, axis=-2)                                              # [batch, *target, y_dim]
-        sigma = F.unflatten(sigma, shape_tar, axis=-2)                                              # [batch, *target, y_dim]
-        return mu, sigma                                                                            # [batch, *target, y_dim] x 2
+        # Mask
+        mu    = F.masked_fill(mu,    data.mask_tar, fill_value=0., non_mask_axis=-1)                # [batch, target, y_dim]
+        sigma = F.masked_fill(sigma, data.mask_tar, fill_value=0., non_mask_axis=-1)                # [batch, target, y_dim]
+        return mu, sigma                                                                            # [batch, target, y_dim] x 2
 
+    @npf_io(flatten_input=True)
     def log_likelihood(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
+        *,
+        training: bool = False,
     ) -> Array:
 
-        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar)                                   # [batch, *target, y_dim] x 2
+        mu, sigma = self(data, training=training, skip_io=True)                                     # [batch, *target, y_dim] x 2
 
-        log_prob = stats.norm.logpdf(y_tar, mu, sigma)                                              # [batch, *target, y_dim]
+        log_prob = stats.norm.logpdf(data.y_tar, mu, sigma)                                         # [batch, *target, y_dim]
         ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, *target]
-        ll = F.masked_mean(ll, mask_tar)                                                            # (1)
+        ll = F.masked_mean(ll, data.mask_tar)                                                       # (1)
         return ll                                                                                   # (1)
 
+    @npf_io(flatten_input=True)
     def loss(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
+        *,
+        training: bool = False,
     ) -> Array:
 
-        loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)                 # (1)
+        loss = -self.log_likelihood(data, training=training, skip_io=True)                          # (1)
         return loss                                                                                 # (1)
 
 
@@ -149,5 +135,5 @@ class CNP:
     ):
         return CNPBase(
             encoder = MLP(hidden_features=encoder_dims, out_features=r_dim),
-            decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2)),
+            decoder = MLP(hidden_features=decoder_dims, out_features=y_dim),
         )

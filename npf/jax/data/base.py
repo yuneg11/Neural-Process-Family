@@ -5,24 +5,22 @@ It is not well-tested and should be improved in the future.
 It does not guarantee to work same as torch.utils.data.DataLoader.
 """
 
-from typing import (
-    Any,
-    Union,
-    Optional,
-    NamedTuple,
-)
+from ..typing import *
 
 import math
+import warnings
 import itertools
-from collections import namedtuple
 
 import jax
 from jax import random
 from jax import numpy as jnp
 from jax import tree_util
 from jax._src.prng import PRNGKeyArray
+from jax.tree_util import register_pytree_node_class
 
 from flax import jax_utils
+
+from .. import functional as F
 
 
 __all__ = [
@@ -39,20 +37,176 @@ __all__ = [
 ]
 
 
-Array = Any
 KeyArray = Union[Array, PRNGKeyArray]
 
 
-class NPData(NamedTuple):
-    x: Array
-    y: Array
-    mask: Array
-    x_ctx: Array
-    y_ctx: Array
+@register_pytree_node_class
+class NPData:
+    x:        Array
+    x_ctx:    Array
+    x_tar:    Array
+    y:        Array
+    y_ctx:    Array
+    y_tar:    Array
+    mask:     Array
     mask_ctx: Array
-    x_tar: Array
-    y_tar: Array
     mask_tar: Array
+
+    @overload
+    def __init__(
+        self,
+        *,
+        x:        Array[B, [P], X],
+        y:        Array[B, [P], Y],
+        mask_ctx: Array[B, [C]],
+        mask_tar: Array[B, [T]],
+    ):
+        ...
+
+    @overload
+    def __init__(
+        self,
+        *,
+        x_ctx:    Array[B, [C], X],
+        x_tar:    Array[B, [T], X],
+        y_ctx:    Array[B, [C], Y],
+        y_tar:    Array[B, [T], Y],
+        mask_ctx: Array[B, [C]],
+        mask_tar: Array[B, [T]],
+    ):
+        ...
+
+    def __init__(
+        self,
+        x:        Optional[Array[B, [P], X]] = None,
+        x_ctx:    Optional[Array[B, [C], X]] = None,
+        x_tar:    Optional[Array[B, [T], X]] = None,
+        y:        Optional[Array[B, [P], Y]] = None,
+        y_ctx:    Optional[Array[B, [C], Y]] = None,
+        y_tar:    Optional[Array[B, [T], Y]] = None,
+        mask:     Optional[Array[B, [P]]] = None,
+        mask_ctx: Optional[Array[B, [C]]] = None,
+        mask_tar: Optional[Array[B, [T]]] = None,
+        *,
+        _skip_init: bool = False,
+    ):
+        # NOTE: `_skip_init` is to avoid errors from JAX's internal usage of PyTrees.
+        #       See: https://jax.readthedocs.io/en/latest/pytrees.html#custom-pytrees-and-initialization
+
+        # Automatic inferring missing data
+        if not _skip_init:
+            if mask_ctx is not None:
+                mask_ctx = mask_ctx.astype(bool)
+            elif x_ctx is not None:
+                mask_ctx = jnp.ones_like(x_ctx[..., 0], dtype=bool)
+            elif y_ctx is not None:
+                mask_ctx = jnp.ones_like(y_ctx[..., 0], dtype=bool)
+
+            if mask_tar is not None:
+                mask_tar = mask_tar.astype(bool)
+            elif x_tar is not None:
+                mask_tar = jnp.ones_like(x_tar[..., 0], dtype=bool)
+            elif y_ctx is not None:
+                mask_tar = jnp.ones_like(y_tar[..., 0], dtype=bool)
+
+            if mask is not None:
+                mask = mask.astype(bool)
+            elif mask_ctx is not None and mask_tar is not None:
+                if x is not None and y is not None:
+                    mask = mask_ctx | mask_tar
+                else:
+                    mask = jnp.concatenate((mask_ctx, mask_tar), axis=1)
+
+            if x is not None:
+                pass
+            elif x_ctx is not None and x_tar is not None and x_ctx.ndim == 3 and x_tar.ndim == 3:
+                x = jnp.concatenate((x_ctx, x_tar), axis=1)
+
+            if y is not None:
+                pass
+            elif y_ctx is not None and y_tar is not None and y_ctx.ndim == 3 and y_tar.ndim == 3:
+                y = jnp.concatenate((y_ctx, y_tar), axis=1)
+
+            if x_ctx is not None:
+                pass
+            elif x is not None and mask_ctx is not None:
+                x_ctx = F.masked_fill(x, mask_ctx, fill_value=0, non_mask_axis=-1)
+
+            if x_tar is not None:
+                pass
+            elif x is not None and mask_tar is not None:
+                x_tar = F.masked_fill(x, mask_tar, fill_value=0, non_mask_axis=-1)
+
+            if y_ctx is not None:
+                pass
+            elif y is not None and mask_ctx is not None:
+                y_ctx = F.masked_fill(y, mask_ctx, fill_value=0, non_mask_axis=-1)
+
+            if y_tar is not None:
+                pass
+            elif y is not None and mask_tar is not None:
+                y_tar = F.masked_fill(y, mask_tar, fill_value=0, non_mask_axis=-1)
+
+        self.x = x
+        self.x_ctx = x_ctx
+        self.x_tar = x_tar
+        self.y = y
+        self.y_ctx = y_ctx
+        self.y_tar = y_tar
+        self.mask = mask
+        self.mask_ctx = mask_ctx
+        self.mask_tar = mask_tar
+
+    def flatten(self, return_shape: bool = False):
+        shape     = self.x.shape[1:-1]
+        ctx_shape = self.x_ctx.shape[1:-1]
+        tar_shape = self.x_tar.shape[1:-1]
+
+        if len(shape) == 1:
+            flatten_data = self
+        else:
+            flatten_data = self.__class__(
+                x        = F.flatten(self.x,        start=1, stop=-1),
+                x_ctx    = F.flatten(self.x_ctx,    start=1, stop=-1),
+                x_tar    = F.flatten(self.x_tar,    start=1, stop=-1),
+                y        = F.flatten(self.y,        start=1, stop=-1),
+                y_ctx    = F.flatten(self.y_ctx,    start=1, stop=-1),
+                y_tar    = F.flatten(self.y_tar,    start=1, stop=-1),
+                mask     = F.flatten(self.mask,     start=1),
+                mask_ctx = F.flatten(self.mask_ctx, start=1),
+                mask_tar = F.flatten(self.mask_tar, start=1),
+                _skip_init = True,
+            )
+
+        if return_shape:
+            return flatten_data, shape, ctx_shape, tar_shape
+        else:
+            return flatten_data
+
+    def tree_flatten(self):
+        return ((
+            self.x, self.x_ctx, self.x_tar,
+            self.y, self.y_ctx, self.y_tar,
+            self.mask, self.mask_ctx, self.mask_tar,
+        ), None)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, children):
+        return cls(*children, _skip_init=True)
+
+
+    # TODO: deprecate this (this is for backward compatibility)
+    @staticmethod
+    def __len__():
+        return 9
+
+    # TODO: deprecate this (this is for backward compatibility)
+    def __getitem__(self, idx):
+        return (
+            self.x, self.x_ctx, self.x_tar,
+            self.y, self.y_ctx, self.y_tar,
+            self.mask, self.mask_ctx, self.mask_tar,
+        )[idx]
 
 
 class DataLoader:
@@ -132,7 +286,6 @@ class DataLoader:
 
         if self.is_map_dataset:
             data_len = len(self.dataset)
-
             idxs = jnp.arange(data_len, dtype=int)
 
             if self.shuffle:
@@ -150,7 +303,7 @@ class DataLoader:
                     batch_range = range(0, (iter_len + 1) * self.batch_size, self.batch_size)
 
                 self._iter = (
-                    self.collate_fn(self.dataset[idxs[batch_start:batch_start + self.batch_size].tolist()])
+                    self.collate_fn(self.dataset[idxs[batch_start:batch_start + self.batch_size]])
                     for batch_start in batch_range
                 )
         else:

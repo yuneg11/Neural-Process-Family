@@ -6,9 +6,10 @@ from typing import (
     Sequence,
     Any,
     Callable,
+    overload,
 )
 
-from jax.numpy import DeviceArray
+from jax.numpy import DeviceArray, ndarray
 
 
 __all__ = [
@@ -20,6 +21,7 @@ __all__ = [
     "Any",
     "Callable",
     "Array",
+    "overload",
     "TensorDim",
     "B",
     "C",
@@ -45,7 +47,8 @@ __all__ = [
 #! TODO: temporary wrapper
 class Array(type):
     def __class_getitem__(cls, *args):
-        return DeviceArray
+        # return DeviceArray
+        return ndarray
 
 
 class TensorDim(str):
