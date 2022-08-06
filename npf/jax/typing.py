@@ -3,6 +3,7 @@ from typing import (
     Optional,
     Tuple,
     List,
+    Dict,
     Sequence,
     Any,
     Callable,
@@ -17,6 +18,7 @@ __all__ = [
     "Optional",
     "Tuple",
     "List",
+    "Dict",
     "Sequence",
     "Any",
     "Callable",
@@ -84,6 +86,6 @@ V = TensorDim("value_dim")
 X = TensorDim("x_dim")
 Y = TensorDim("y_dim")
 Z = TensorDim("z_dim")
-G = TensorDim("generate number")
+G = TensorDim("grid")
 
 QK = TensorDim("query_key_dim")

@@ -1,15 +1,21 @@
 name: ConvNP
 kwargs:
-  x_min: -2.0
-  x_max: +2.0
   z_dim: 64
+  r_dim: 64
   cnn_dims: null  # use default
   cnn_xl: False
+  on_the_grid: True
   points_per_unit: 64
-  x_margin: 0.1
+  loss_type: ml
+  min_sigma: 0.1
+  min_latent_sigma: 0.1
 train_kwargs:
-  num_latents: 10
+  num_latents: 5
+  joint: True
+  return_aux: True
 valid_kwargs:
-  num_latents: 10
+  num_latents: 5
+  joint: False
 test_kwargs:
-  num_latents: 10
+  num_latents: 5
+  joint: False

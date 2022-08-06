@@ -2,12 +2,13 @@ from ..typing import *
 
 from jax import numpy as jnp
 from jax import random
-from jax.scipy import stats
 from flax import linen as nn
 
 from .cnp import CNPBase
 from .canp import CANPBase
 from .. import functional as F
+from ..data import NPData
+from ..utils import npf_io, MultivariateNormalDiag
 from ..modules import (
     MLP,
     MultiheadAttention,
@@ -42,13 +43,10 @@ class NeuBNPMixin(nn.Module):
         return w_ctx
 
     @nn.compact
+    @npf_io(flatten=True)
     def __call__(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
         *,
         num_samples: int = 1,
         return_aux: bool = False,
@@ -57,134 +55,118 @@ class NeuBNPMixin(nn.Module):
         Tuple[Array[B, S, [T], Y], Array[B, S, [T], Y], Array[B, T, R]],
     ]:
 
-        # Flatten
-        shape_tar = x_tar.shape[1:-1]
-        x_ctx    = F.flatten(x_ctx,    start=1, stop=-1)                                            # [batch, context, x_dim]
-        y_ctx    = F.flatten(y_ctx,    start=1, stop=-1)                                            # [batch, context, y_dim]
-        x_tar    = F.flatten(x_tar,    start=1, stop=-1)                                            # [batch, target,  x_dim]
-        mask_ctx = F.flatten(mask_ctx, start=1)                                                     # [batch, context]
-        mask_tar = F.flatten(mask_tar, start=1)                                                     # [batch, target]
+        w_ctx = self._sample_weight(data.mask_ctx, num_samples)                                     # [batch, sample, context, 1]
 
-        # Algorithm
-        w_ctx = self._sample_weight(mask_ctx, num_samples)                                          # [batch, sample, context, 1]
-
-        r_i_ctx = self._encode(x_ctx, y_ctx, mask_ctx)                                              # [batch, context, r_dim]
+        r_i_ctx = self._encode(data.x_ctx, data.y_ctx, data.mask_ctx)                               # [batch, context, r_dim]
         s_r_i_ctx = F.repeat_axis(r_i_ctx, num_samples, axis=1)                                     # [batch, sample, context, r_dim]
         b_r_i_ctx = s_r_i_ctx * w_ctx                                                               # [batch, sample, context, r_dim]
 
-        s_x_tar = F.repeat_axis(x_tar, num_samples, axis=1)                                         # [batch, sample, target,  x_dim]
-        s_x_ctx = F.repeat_axis(x_ctx, num_samples, axis=1)                                         # [batch, sample, context, x_dim]
+        s_x     = F.repeat_axis(data.x,     num_samples, axis=1)                                    # [batch, sample, point,   x_dim]
+        s_x_ctx = F.repeat_axis(data.x_ctx, num_samples, axis=1)                                    # [batch, sample, context, x_dim]
+        b_r_ctx = self._aggregate(s_x, s_x_ctx, b_r_i_ctx, data.mask_ctx)                           # [batch, sample, point,   r_dim]
 
-        b_r_ctx = self._aggregate(s_x_tar, s_x_ctx, b_r_i_ctx, mask_ctx)                            # [batch x sample, target, r_dim]
-        mu, sigma = self._decode(s_x_tar, b_r_ctx, mask_tar)                                        # [batch x sample, target, y_dim] x 2
+        query = jnp.concatenate((s_x, b_r_ctx), axis=-1)                                            # [batch, sample, point, x_dim + r_dim]
+        mu, sigma = self._decode(query, data.mask)                                                  # [batch, sample, point, y_dim] x 2
 
-        # Unflatten and mask
-        mu    = F.masked_fill(mu,    mask_tar, fill_value=0.,   non_mask_axis=(1, -1))              # [batch, sample, target, y_dim]
-        sigma = F.masked_fill(sigma, mask_tar, fill_value=1e-6, non_mask_axis=(1, -1))              # [batch, sample, target, y_dim]
-        mu    = F.unflatten(mu,    shape_tar, axis=-2)                                              # [batch, sample, *target, y_dim]
-        sigma = F.unflatten(sigma, shape_tar, axis=-2)                                              # [batch, sample, *target, y_dim]
+        # Mask
+        mu    = F.masked_fill(mu,    data.mask, fill_value=0., non_mask_axis=(1, -1))               # [batch, sample, point, y_dim]
+        sigma = F.masked_fill(sigma, data.mask, fill_value=0., non_mask_axis=(1, -1))               # [batch, sample, point, y_dim]
 
         if return_aux:
-            return mu, sigma, (w_ctx,)                                                              # [batch, sample, *target, y_dim] x 2, [batch, sample, context, 1]
+            w_ctx = jnp.squeeze(w_ctx, axis=-1)                                                     # [batch, sample, point (= context)]
+            return mu, sigma, (w_ctx,)                                                              # [batch, sample, point, y_dim] x 2, (aux)
         else:
-            return mu, sigma                                                                        # [batch, sample, *target, y_dim] x 2
+            return mu, sigma                                                                        # [batch, sample, point, y_dim] x 2
 
+    @npf_io(flatten_input=True)
     def log_likelihood(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
         *,
         num_samples: int = 1,
-        train: bool = False,
         joint: bool = False,
+        split_set: bool = False,
     ) -> Array:
 
-        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_samples=num_samples)          # [batch, sample, *target, y_dim] x 2
+        mu, sigma = self(data, num_samples=num_samples, skip_io=True)                               # [batch, sample, point, y_dim] x 2, (aux)
 
-        s_y_tar = jnp.expand_dims(y_tar, axis=1)                                                    # [batch, 1,      *target, y_dim]
-        log_prob = stats.norm.logpdf(s_y_tar, mu, sigma)                                            # [batch, sample, *target, y_dim]
-        ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, sample, *target]
+        s_y = jnp.expand_dims(data.y, axis=1)                                                       # [batch, 1,      point, y_dim]
+        log_prob = MultivariateNormalDiag(mu, sigma).log_prob(s_y)                                  # [batch, sample, point]
 
-        if train and joint:
-            axis = [-d for d in range(1, mask_tar.ndim)]
-            ll = F.masked_sum(ll, mask_tar, axis=axis, non_mask_axis=1)                             # [batch, sample]
-            ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
-            ll = jnp.mean(ll / jnp.sum(mask_tar, axis=axis))                                        # (1)
+        if joint:
+            ll = F.masked_sum(log_prob, data.mask, axis=-1, non_mask_axis=1)                        # [batch, sample]
+            ll = F.logmeanexp(ll, axis=1) / jnp.sum(data.mask, axis=-1)                             # [batch]
+
+            if split_set:
+                ll_ctx = F.masked_sum(log_prob, data.mask_ctx, axis=-1, non_mask_axis=1)            # [batch, sample]
+                ll_tar = F.masked_sum(log_prob, data.mask_tar, axis=-1, non_mask_axis=1)            # [batch, sample]
+                ll_ctx = F.logmeanexp(ll_ctx, axis=1) / jnp.sum(data.mask_ctx, axis=-1)             # [batch]
+                ll_tar = F.logmeanexp(ll_tar, axis=1) / jnp.sum(data.mask_tar, axis=-1)             # [batch]
+
         else:
-            ll = F.logmeanexp(ll, axis=1)                                                           # [batch, *target]
-            ll = F.masked_mean(ll, mask_tar)                                                        # (1)
+            ll_all = F.logmeanexp(log_prob, axis=1)                                                 # [batch, point]
+            ll = F.masked_mean(ll_all, data.mask, axis=-1)                                          # [batch]
 
-        return ll                                                                                   # (1)
+            if split_set:
+                ll_ctx = F.masked_mean(ll_all, data.mask_ctx, axis=-1)                              # [batch]
+                ll_tar = F.masked_mean(ll_all, data.mask_tar, axis=-1)                              # [batch]
 
+        ll = jnp.mean(ll)                                                                           # (1)
+
+        if split_set:
+            ll_ctx = jnp.mean(ll_ctx)                                                               # (1)
+            ll_tar = jnp.mean(ll_tar)                                                               # (1)
+
+            return ll, ll_ctx, ll_tar                                                               # (1) x 3
+        else:
+            return ll                                                                               # (1)
+
+    @npf_io(flatten_input=True)
     def loss(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
         *,
         num_samples: int = 1,
-        train: bool = True,
-        joint: bool = False,
-        return_aux: bool = False,
+        joint: bool = True,
     ) -> Array:
 
-        mu, sigma, (w_ctx,) = self(                                                                 # [batch, sample, *target, y_dim] x 2, ([batch, sample, context, 1],)
-            x_ctx, y_ctx, x_tar, mask_ctx, mask_tar,
-            num_samples=num_samples, return_aux=True,
-        )
+        mu, sigma, (w_ctx,) = self(data, num_samples=num_samples, return_aux=True, skip_io=True)    # [batch, sample, point, y_dim] x 2, ([batch, sample, point],)
 
-        s_y_tar = jnp.expand_dims(y_tar, axis=1)                                                    # [batch, 1,      *target, y_dim]
-        log_prob = stats.norm.logpdf(s_y_tar, mu, sigma)                                            # [batch, sample, *target, y_dim]
+        s_y = jnp.expand_dims(data.y, axis=1)                                                       # [batch, 1,      point, y_dim]
+        log_prob = MultivariateNormalDiag(mu, sigma).log_prob(s_y)                                  # [batch, sample, point]
+        log_prob_w = log_prob * w_ctx                                                               # [batch, sample, point]
 
-        ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, sample, *target]
+        if joint:
+            ll_ctx = F.masked_sum(log_prob_w, data.mask_ctx, axis=-1, non_mask_axis=1)              # [batch, sample]
+            ll_tar = F.masked_sum(log_prob,   data.mask_tar, axis=-1, non_mask_axis=1)              # [batch, sample]
+            ll_ctx = F.logmeanexp(ll_ctx, axis=1)                                                   # [batch]
+            ll_tar = F.logmeanexp(ll_tar, axis=1)                                                   # [batch]
 
-        # TODO: Handle the situation where the number of context are different from the number of target
-        assert mask_ctx.shape == mask_tar.shape, "Currently, only support context and target from the same array."
-
-        mask_ex_tar = mask_tar & (~mask_ctx)                                                        # [batch, *point (= *context = *target)]
-        w_ctx = F.unflatten(w_ctx[..., 0], ll.shape[2:], axis=2)                                    # [batch, sample, *point (= *context)]
-
-        axis = [-d for d in range(1, mask_tar.ndim)]
-
-        if train and joint:
-            ll_tar = F.masked_sum(ll,         mask_ex_tar, axis=axis, non_mask_axis=1)              # [batch, sample]
-            ll_ctx = F.masked_sum(ll * w_ctx, mask_ctx,    axis=axis, non_mask_axis=1)              # [batch, sample]
-            ll = (ll_tar + ll_ctx)                                                                  # [batch, sample]
-            ll = F.logmeanexp(ll, axis=1)                                                           # [batch]
         else:
-            ll_tar = F.logmeanexp(ll,         axis=1)                                               # [batch, *point]
-            ll_ctx = F.logmeanexp(ll * w_ctx, axis=1)                                               # [batch, *point]
+            ll_ctx = F.logmeanexp(log_prob_w, axis=1)                                               # [batch, point]
+            ll_tar = F.logmeanexp(log_prob,   axis=1)                                               # [batch, point]
+            ll_ctx = F.masked_sum(ll_ctx, data.mask_ctx, axis=-1)                                   # [batch]
+            ll_tar = F.masked_sum(ll_tar, data.mask_tar, axis=-1)                                   # [batch]
 
-            ll_tar = F.masked_sum(ll_tar, mask_ex_tar, axis=axis)                                   # [batch]
-            ll_ctx = F.masked_sum(ll_ctx, mask_ctx,    axis=axis)                                   # [batch]
+        ll = (ll_ctx + ll_tar) / jnp.sum(data.mask, axis=-1)                                        # [batch]
+        ll = jnp.mean(ll)                                                                           # (1)
+        loss = -ll                                                                                  # (1)
 
-            ll = (ll_tar + ll_ctx) / jnp.sum(mask_tar, axis=axis)                                   # [batch]
-
-        loss = -jnp.mean(ll)                                                                        # (1)
-
-        if return_aux:
-            return loss, dict(ll=ll)
-        else:
-            return loss
+        return loss                                                                                 # (1)
 
 
 class NeuBNPBase(NeuBNPMixin, CNPBase):
     """
     Base class of Neural Bootstrapping Neural Process
     """
+    pass
 
 
 class NeuBANPBase(NeuBNPMixin, CANPBase):
     """
     Base class of Neural Bootstrapping Attentive Neural Process
     """
+    pass
 
 
 class NeuBNP:
@@ -198,10 +180,12 @@ class NeuBNP:
         r_dim: int = 128,
         encoder_dims: Sequence[int] = (128, 128, 128, 128, 128),
         decoder_dims: Sequence[int] = (128, 128, 128),
+        min_sigma: float = 0.1,
     ):
         return NeuBNPBase(
-            encoder = MLP(hidden_features=encoder_dims, out_features=r_dim),
-            decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2)),
+            encoder=MLP(hidden_features=encoder_dims, out_features=r_dim),
+            decoder=MLP(hidden_features=decoder_dims, out_features=(y_dim * 2)),
+            min_sigma=min_sigma,
         )
 
 
@@ -219,6 +203,7 @@ class NeuBANP:
         transform_qk_dims: Optional[Sequence[int]] = (128, 128, 128, 128, 128),
         encoder_dims: Sequence[int] = (128, 128, 128, 128, 128),
         decoder_dims: Sequence[int] = (128, 128, 128),
+        min_sigma: float = 0.1,
     ):
 
         if sa_heads is not None:
@@ -242,4 +227,5 @@ class NeuBANP:
             transform_qk=transform_qk,
             cross_attention=cross_attention,
             decoder=decoder,
+            min_sigma=min_sigma,
         )

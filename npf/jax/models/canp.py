@@ -86,6 +86,7 @@ class CANP:
         transform_qk_dims: Optional[Sequence[int]] = (128, 128, 128, 128, 128),
         encoder_dims: Sequence[int] = (128, 128, 128, 128, 128),
         decoder_dims: Sequence[int] = (128, 128, 128),
+        min_sigma: float = 0.1,
     ):
 
         if sa_heads is not None:
@@ -101,7 +102,7 @@ class CANP:
             transform_qk = None
 
         cross_attention = MultiheadAttention(dim_out=r_dim, num_heads=ca_heads)
-        decoder = MLP(hidden_features=decoder_dims, out_features=y_dim)
+        decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
 
         return CANPBase(
             encoder=encoder,
@@ -109,4 +110,5 @@ class CANP:
             transform_qk=transform_qk,
             cross_attention=cross_attention,
             decoder=decoder,
+            min_sigma=min_sigma,
         )

@@ -68,12 +68,14 @@ def get_train_step(model, **kwargs):
 def get_valid_step(model, **kwargs):
     @partial(jax.pmap, axis_name="batch")
     def _valid_step(state, rngs, batch):
-        ll = model.apply(state.params, batch, method=model.log_likelihood, rngs=rngs, **kwargs)
-        return ll
+        ll, ll_ctx, ll_tar = model.apply(
+            state.params, batch, method=model.log_likelihood, rngs=rngs, split_set=True, **kwargs,
+        )
+        return ll, ll_ctx, ll_tar
 
     def valid_step(state, rngs, batch):
-        metric = _valid_step(state, rngs, batch)
-        return sync_metric(metric)
+        metrics = _valid_step(state, rngs, batch)
+        return sync_metric(metrics)
 
     return valid_step
 
@@ -102,29 +104,16 @@ def main(config, output_dir):
         **config.model.get("kwargs", {}),
     )
 
-    try:
-        params = model.init(
-            init_rngs,
-            NPData(
-                x=jnp.zeros((num_devices, *config.datasets.shapes.x)),
-                y=jnp.zeros((num_devices, *config.datasets.shapes.y)),
-                mask_ctx=jnp.zeros((num_devices, *config.datasets.shapes.mask_ctx)),
-                mask_tar=jnp.zeros((num_devices, *config.datasets.shapes.mask_tar)),
-            ),
-            **config.model.get("init_kwargs", {}),
-            training=True,
-        )
-    except:
-        params = model.init(
-            init_rngs,
-            NPData(
-                x=jnp.zeros((num_devices, *config.datasets.shapes.x)),
-                y=jnp.zeros((num_devices, *config.datasets.shapes.y)),
-                mask_ctx=jnp.zeros((num_devices, *config.datasets.shapes.mask_ctx)),
-                mask_tar=jnp.zeros((num_devices, *config.datasets.shapes.mask_tar)),
-            ),
-            **config.model.get("init_kwargs", {}),
-        )
+    params = model.init(
+        init_rngs,
+        NPData(
+            x=jnp.zeros((num_devices, *config.datasets.shapes.x)),
+            y=jnp.zeros((num_devices, *config.datasets.shapes.y)),
+            mask_ctx=jnp.zeros((num_devices, *config.datasets.shapes.mask_ctx)),
+            mask_tar=jnp.zeros((num_devices, *config.datasets.shapes.mask_tar)),
+        ),
+        **config.model.get("init_kwargs", {}),
+    )
 
     param_shapes = jax.tree_util.tree_map(lambda v: () if isinstance(v, float) else v.shape, params)
     num_params = jax.tree_util.tree_reduce(lambda a, v: a + (1 if isinstance(v, float) else v.size), params, 0)
@@ -218,9 +207,7 @@ def main(config, output_dir):
                     key, model_key = random.split(key)
                     replicated_rngs = jax_utils.replicate(dict(sample=model_key))
 
-                    ll_ctx = valid_step(state=state, rngs=replicated_rngs, batch=batch)
-                    ll_tar = valid_step(state=state, rngs=replicated_rngs, batch=batch)
-                    ll     = valid_step(state=state, rngs=replicated_rngs, batch=batch)
+                    ll, ll_ctx, ll_tar = valid_step(state=state, rngs=replicated_rngs, batch=batch)
 
                     valid_meter.update(ll_ctx=ll_ctx, ll_tar=ll_tar, ll=ll, n=len(batch.x))
 
@@ -228,7 +215,7 @@ def main(config, output_dir):
 
                 logger.info(
                     f"                 | "
-                    f"Valid CTX LL: {ll_ctx:7.4f}  TAR LL: {ll_tar:7.4f}  LL: {ll:7.4f}"
+                    f"Valid LL CTX: {ll_ctx:7.4f}  LL TAR: {ll_tar:7.4f}  LL: {ll:7.4f}"
                     f"{'  (Best LL)' if ll > best_ll else ''}"
                 )
 

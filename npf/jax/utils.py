@@ -35,7 +35,7 @@ class MultivariateNormalDiag:
         per_dim_kld = (
             jnp.log(other.scale_diag) - jnp.log(self.scale_diag)
             + (jnp.square(self.scale_diag) + jnp.square(self.loc - other.loc)) / (2 * jnp.square(other.scale_diag))
-            - 0.5,
+            - 0.5
         )
         kld = jnp.sum(per_dim_kld, axis=-1)
         return kld

@@ -12,10 +12,15 @@ kwargs:
   determ_encoder_dims: [128, 128, 128, 128, 128]
   decoder_dims: [128, 128, 128]
   loss_type: vi
+  min_sigma: 0.1
+  min_latent_sigma: 0.1
 train_kwargs:
   num_latents: 10
-  return_aux: True          
+  joint: True
+  return_aux: True
 valid_kwargs:
   num_latents: 10
+  joint: False
 test_kwargs:
   num_latents: 10
+  joint: False

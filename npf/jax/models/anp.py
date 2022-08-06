@@ -104,13 +104,15 @@ class ANP:
         determ_encoder_dims: Optional[Sequence[int]] = (128, 128, 128, 128, 128),
         decoder_dims: Sequence[int] = (128, 128, 128),
         loss_type: str = "vi",
+        min_sigma: float = 0.1,
+        min_latent_sigma: float = 0.1,
     ):
 
         if common_encoder_dims is not None:
-            if r_dim != z_dim:
-                raise ValueError("Cannot use common encoder: r_dim != z_dim")
+            if r_dim != z_dim * 2:
+                raise ValueError("Cannot use common encoder: r_dim != z_dim x 2")
 
-            latent_encoder = MLP(hidden_features=common_encoder_dims, out_features=z_dim, last_activation=(common_sa_heads is not None))
+            latent_encoder = MLP(hidden_features=common_encoder_dims, out_features=(z_dim * 2), last_activation=(common_sa_heads is not None))
             latent_self_attention = MultiheadSelfAttention(dim_out=r_dim, num_heads=common_sa_heads) if common_sa_heads is not None else None
 
             determ_encoder = latent_encoder
@@ -122,8 +124,8 @@ class ANP:
             if latent_encoder_dims is None:
                 raise ValueError("Invalid combination of encoders")
 
-            latent_encoder = MLP(hidden_features=latent_encoder_dims, out_features=z_dim, last_activation=(latent_sa_heads is not None))
-            latent_self_attention = MultiheadSelfAttention(dim_out=z_dim, num_heads=latent_sa_heads) if latent_sa_heads is not None else None
+            latent_encoder = MLP(hidden_features=latent_encoder_dims, out_features=(z_dim * 2), last_activation=(latent_sa_heads is not None))
+            latent_self_attention = MultiheadSelfAttention(dim_out=(z_dim * 2), num_heads=latent_sa_heads) if latent_sa_heads is not None else None
 
             if determ_encoder_dims is not None:
                 determ_encoder = MLP(hidden_features=determ_encoder_dims, out_features=r_dim, last_activation=(determ_sa_heads is not None))
@@ -135,7 +137,7 @@ class ANP:
                 determ_self_attention = None
                 determ_cross_attention = None
 
-        decoder = MLP(hidden_features=decoder_dims, out_features=y_dim)
+        decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
 
         return ANPBase(
             latent_encoder=latent_encoder,
@@ -146,4 +148,6 @@ class ANP:
             determ_cross_attention=determ_cross_attention,
             decoder=decoder,
             loss_type=loss_type,
+            min_sigma=min_sigma,
+            min_latent_sigma=min_latent_sigma,
         )

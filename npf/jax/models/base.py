@@ -2,22 +2,24 @@ from ..typing import *
 
 from flax import linen as nn
 
+from ..data import NPData
+from ..utils import npf_io
+
+
 __all__ = [
     "NPF",
 ]
+
 
 class NPF(nn.Module):
     """
     Base class for NPFs
     """
 
+    @npf_io
     def __call__(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
         **kwargs,
     ) -> Union[
         Tuple[Array[B, [T], Y], Array[B, [T], Y]],
@@ -28,66 +30,56 @@ class NPF(nn.Module):
         """Forward pass
 
         Args:
-            x_ctx    (Array[B, [C], X]): x_context
-            y_ctx    (Array[B, [C], Y]): y_context
-            x_tar    (Array[B, [T], X]): x_target
-            mask_ctx (Array[B, [C]]): mask_context
-            mask_tar (Array[B, [T]]): mask_target
+            data (NPData): NPData object
             **kwargs: kwargs
 
         Returns:
-            (mu_tar, sigma_tar) or (mu_tar, sigma_tar, aux)
+            (mu, sigma) or (mu, sigma, aux)
         """
         raise NotImplementedError("NPFs must implement the '__call__' method")
 
+    @npf_io
     def log_likelihood(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
+        *,
+        split_set: bool = False,
         **kwargs,
-    ) -> Array:
+    ) -> Union[
+        Array,
+        Tuple[Array, Any],
+        Tuple[Array, Array, Array],
+        Tuple[Array, Array, Array, Any],
+    ]:
         """Log-Likelihood
 
         Args:
-            x_ctx    (Array[B, [C], X]): x_context
-            y_ctx    (Array[B, [C], Y]): y_context
-            x_tar    (Array[B, [T], X]): x_target
-            y_tar    (Array[B, [T], Y]): y_target
-            mask_ctx (Array[B, [C]]): mask_context
-            mask_tar (Array[B, [T]]): mask_target
+            data (NPData): NPData object
+            split_set (bool): If True, return log-likelihood of each set separately
             **kwargs: kwargs
 
         Returns:
-            ll
+            ll or (ll, aux) if split_set is False
+            (ll, ll_ctx, ll_tar) or (ll, ll_ctx, ll_tar, aux) if split_set is True
         """
         raise NotImplementedError("NPFs must implement the 'log_likelihood' method")
 
+    @npf_io
     def loss(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
         **kwargs,
-    ) -> Array:
+    ) -> Union[
+        Array,
+        Tuple[Array, Dict],
+    ]:
         """Loss
 
         Args:
-            x_ctx    (Array[B, [C], X]): x_context
-            y_ctx    (Array[B, [C], Y]): y_context
-            x_tar    (Array[B, [T], X]): x_target
-            y_tar    (Array[B, [T], Y]): y_target
-            mask_ctx (Array[B, [C]]): mask_context
-            mask_tar (Array[B, [T]]): mask_target
+            data (NPData): NPData object
             **kwargs: kwargs
 
         Returns:
-            loss
+            loss or (loss, aux)
         """
         raise NotImplementedError("NPFs must implement the 'loss' method")

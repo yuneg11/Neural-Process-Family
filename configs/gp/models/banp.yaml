@@ -6,11 +6,14 @@ kwargs:
   transform_qk_dims: [128, 128, 128, 128, 128]
   encoder_dims: [128, 128, 128, 128, 128]
   decoder_dims: [128, 128, 128]
+  min_sigma: 0.1
 train_kwargs:
   num_samples: 10
-  joint: False
+  joint: True
   return_aux: True
 valid_kwargs:
   num_samples: 10
+  joint: False
 test_kwargs:
   num_samples: 10
+  joint: False

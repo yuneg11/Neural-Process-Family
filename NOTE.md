@@ -1,8 +1,16 @@
 # Note
 
+## TODOs
+
+1. [ ] (**Important**) Check `iwae_loss` and `elbo_loss` of `ConvNP` model.
+2. [ ] Add on-the-grid version of `ConvCNP` and `ConvNP` models.
+3. [ ] Implement `UNet` and `ResNet` for large versions of `ConvCNP` and `ConvNP` models.
+4. [ ] Change image normalization range from `(-0.5, +0.5)` to `(-1, +1)`.
+5. [ ] Refactor usage of `NPData` in datasets.
+
 ## Design Notes
 
-### 1. `NPData`
+### 1. `NPData` class
 
 `NPData` class holds data for Neural Processes.
 
@@ -99,3 +107,58 @@ TODO: Uncomment this after implement.
   batch.mask      # [batch_size, *task_size]             (mask = mask_ctx | mask_tar)
   ```
 -->
+
+### 2. `npf_io` decorator
+
+When we implement the NP models, we usually expect the input to be a `NPData` object.
+However, it is convenient to pass each `x`, `y`, ... directly to the model as a tensor.
+So, `npf_io` decorator provides two main features:
+
+1. Auto conversion of direct tensor inputs to `NPData` objects.
+2. Auto input flattening of `*task_size` to a single dimension, (and output unflattening if necessary).
+
+Each NP model requires different features, so we provide three variants of `npf_io` decorator:
+
+- `@npf_io`: auto conversion, no input / output flattening
+- `@npf_io(flatten=True)`: auto conversion, input / output flattening
+- `@npf_io(flatten_input=True)`: auto conversion, input flattening / but no output flattening
+
+This decorator gives some convenience, but it makes some overhead.
+If the model calls another `npf_io` decorated function in the `npf_io` decorated function,
+you can explicitly disable these features by passing `skip_io=False` to the inner function.
+
+#### Example
+
+```python
+class Model:
+
+  @npf_io(flatten=True)
+  def __call__(self, data):
+      ...
+      return mu, sigma
+
+  @npf_io(flatten_input=True)
+  def log_likelihood(self, data):
+      mu, sigma = self(data, skip_io=True)  # disable `npf_io` decorator when calling `__call__`.
+      ...
+      return ll
+
+...
+
+ll = model.apply(
+    params, method=model.log_likelihood, rngs=rngs,
+    x=x, y=y, mask_ctx=mask_ctx, mask_tar=mask_tar,  # pass tensors directly to the model
+)
+```
+
+### 3. `NPF` models
+
+`NPF` models should implement the three key methods: `__call__`, `log_likelihood` and `loss`.
+
+- `__call__(self, data, **kwargs)`: forward pass. The return should be `(mu, sigma)` or `(mu, sigma, aux)` for `data.x`.
+- `log_likelihood(self, data, split_sets: bool, **kwargs)`: log likelihood. The return should be
+  - `ll` or `(ll, aux)` if `split_sets=False`
+  - `(ll, ll_ctx, ll_tar)` or `(ll, ll_ctx, ll_tar, aux)` if `split_sets=True`
+- `loss(self, data, **kwargs)`: loss.  The return should be `loss` or `(loss, aux)`.
+
+Here, `aux` can be an auxiliary data which is used by internal functions or contains debugging metrics.
