@@ -8,6 +8,8 @@ from flax import linen as nn
 
 from .base import NPF
 from .. import functional as F
+from ..data import NPData
+from ..utils import npf_io
 from ..modules import (
     # UNet,
     CNN,
@@ -32,7 +34,7 @@ class ConvCNPBase(NPF):
     encoder:       nn.Module = None
     cnn:           nn.Module = None
     decoder:       nn.Module = None
-    min_sigma:     float = 0.0
+    min_sigma:     float = 0.1
 
     def __post_init__(self):
         super().__post_init__()
@@ -44,62 +46,51 @@ class ConvCNPBase(NPF):
             raise ValueError("decoder is not specified")
 
     @nn.compact
+    @npf_io
     def __call__(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
+        *,
+        training: bool = False,
     ) -> Tuple[Array[B, [T], Y], Array[B, [T], Y]]:
 
         # Discretize
-        x_grid, mask_grid = self.discretizer(x_ctx, x_tar, mask_ctx, mask_tar)                      # [1, grid, x_dim] (broadcastable to [batch, grid, x_dim]), [discrete]
-
-        # Encode
-        h = self.encoder(x_grid, x_ctx, y_ctx, mask_ctx)                                            # [batch, grid, y_dim + 1]
-
-        # Convolution
+        x_grid, mask_grid = self.discretizer(data.x_ctx, data.x, data.mask_ctx, data.mask)                      # [1, grid, x_dim] (broadcastable to [batch, grid, x_dim]), [discrete]
+        h = self.encoder(x_grid, data.x_ctx, data.y_ctx, data.mask_ctx)                                            # [batch, grid, y_dim + 1]
         r = self.cnn(h)                                                                             # [batch, grid, r_dim]
 
         # Decode
-        r = self.decoder(x_tar, x_grid, r, mask_grid)                                               # [batch, target, y_dim]
-        mu_log_sigma = nn.Dense(2 * y_ctx.shape[-1])(r)                                             # [batch, target, y_dim x 2]
+        r = self.decoder(data.x, x_grid, r, mask_grid)                                               # [batch, target, y_dim]
+        mu_log_sigma = nn.Dense(2 * data.y_ctx.shape[-1])(r)                                             # [batch, target, y_dim x 2]
         mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, target, y_dim] x 2
         sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma)                      # [batch, target, y_dim]
 
-        mu    = F.masked_fill(mu,    mask_tar, non_mask_axis=-1)                                    # [batch, target, y_dim]
-        sigma = F.masked_fill(sigma, mask_tar, non_mask_axis=-1)                                    # [batch, target, y_dim]
+        mu    = F.masked_fill(mu,    data.mask, non_mask_axis=-1)                                    # [batch, target, y_dim]
+        sigma = F.masked_fill(sigma, data.mask, non_mask_axis=-1)                                    # [batch, target, y_dim]
         return mu, sigma
 
+    @npf_io
     def log_likelihood(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
+        *,
+        training: bool = False,
     ) -> Array:
 
-        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar)                                   # [batch, *target, y_dim] x 2
+        mu, sigma = self(data, training=training, skip_io=True)                                   # [batch, *target, y_dim] x 2
 
-        log_prob = stats.norm.logpdf(y_tar, mu, sigma)                                              # [batch, *target, y_dim]
+        log_prob = stats.norm.logpdf(data.y, mu, sigma)                                              # [batch, *target, y_dim]
         ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, *target]
-        ll = F.masked_mean(ll, mask_tar)                                                            # (1)
+        ll = F.masked_mean(ll, data.mask)                                                            # (1)
         return ll                                                                                   # (1)
 
+    @npf_io
     def loss(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
     ) -> Array:
 
-        loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar)                 # (1)
+        loss = -self.log_likelihood(data, training=True, skip_io=True)                 # (1)
         return loss
 
 

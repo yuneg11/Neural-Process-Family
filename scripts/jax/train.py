@@ -102,16 +102,29 @@ def main(config, output_dir):
         **config.model.get("kwargs", {}),
     )
 
-    params = model.init(
-        init_rngs,
-        NPData(
-            x=jnp.zeros((num_devices, *config.datasets.shapes.x)),
-            y=jnp.zeros((num_devices, *config.datasets.shapes.y)),
-            mask_ctx=jnp.zeros((num_devices, *config.datasets.shapes.mask_ctx)),
-            mask_tar=jnp.zeros((num_devices, *config.datasets.shapes.mask_tar)),
-        ),
-        **config.model.get("init_kwargs", {}),
-    )
+    try:
+        params = model.init(
+            init_rngs,
+            NPData(
+                x=jnp.zeros((num_devices, *config.datasets.shapes.x)),
+                y=jnp.zeros((num_devices, *config.datasets.shapes.y)),
+                mask_ctx=jnp.zeros((num_devices, *config.datasets.shapes.mask_ctx)),
+                mask_tar=jnp.zeros((num_devices, *config.datasets.shapes.mask_tar)),
+            ),
+            **config.model.get("init_kwargs", {}),
+            training=True,
+        )
+    except:
+        params = model.init(
+            init_rngs,
+            NPData(
+                x=jnp.zeros((num_devices, *config.datasets.shapes.x)),
+                y=jnp.zeros((num_devices, *config.datasets.shapes.y)),
+                mask_ctx=jnp.zeros((num_devices, *config.datasets.shapes.mask_ctx)),
+                mask_tar=jnp.zeros((num_devices, *config.datasets.shapes.mask_tar)),
+            ),
+            **config.model.get("init_kwargs", {}),
+        )
 
     param_shapes = jax.tree_util.tree_map(lambda v: () if isinstance(v, float) else v.shape, params)
     num_params = jax.tree_util.tree_reduce(lambda a, v: a + (1 if isinstance(v, float) else v.size), params, 0)
@@ -166,7 +179,7 @@ def main(config, output_dir):
     best_ll, best_epoch, best_state = -jnp.inf, 0, None
     aux_meter = None
 
-    with Progress() as p:
+    with Progress(speed_estimate_period=300) as p:
         for i in p.trange(1, config.train.num_epochs + 1, description=config.model.name):
             train_meter.reset()
 

@@ -34,18 +34,18 @@ class ANPBase(NPBase):
 
     def _determ_aggregate(
         self,
-        x_tar:    Array[B, T, X],
+        x:        Array[B, P, X],
         x_ctx:    Array[B, C, X],
         r_i_ctx:  Array[B, C, R],
         mask_ctx: Array[B, C],
-    ) -> Array[B, T, R]:
+    ) -> Array[B, P, R]:
 
         if self.determ_transform_qk is None:
-            q_i, k_i = x_tar, x_ctx                                                                 # [batch, target, x_dim],  [batch, context, x_dim]
+            q_i, k_i = x, x_ctx                                                                     # [batch, point, x_dim],  [batch, context, x_dim]
         else:
-            q_i, k_i = self.determ_transform_qk(x_tar), self.determ_transform_qk(x_ctx)             # [batch, target, qk_dim], [batch, context, qk_dim]
+            q_i, k_i = self.determ_transform_qk(x), self.determ_transform_qk(x_ctx)                 # [batch, point, qk_dim], [batch, context, qk_dim]
 
-        r_ctx = self.determ_cross_attention(q_i, k_i, r_i_ctx, mask=mask_ctx)                       # [batch, target, r_dim]
+        r_ctx = self.determ_cross_attention(q_i, k_i, r_i_ctx, mask=mask_ctx)                       # [batch, point, r_dim]
         return r_ctx
 
     def _encode(
@@ -107,10 +107,10 @@ class ANP:
     ):
 
         if common_encoder_dims is not None:
-            if r_dim != z_dim * 2:
-                raise ValueError("Dimension mismatch: r_dim != z_dim x 2")
+            if r_dim != z_dim:
+                raise ValueError("Cannot use common encoder: r_dim != z_dim")
 
-            latent_encoder = MLP(hidden_features=common_encoder_dims, out_features=(z_dim * 2), last_activation=(common_sa_heads is not None))
+            latent_encoder = MLP(hidden_features=common_encoder_dims, out_features=z_dim, last_activation=(common_sa_heads is not None))
             latent_self_attention = MultiheadSelfAttention(dim_out=r_dim, num_heads=common_sa_heads) if common_sa_heads is not None else None
 
             determ_encoder = latent_encoder
@@ -122,8 +122,8 @@ class ANP:
             if latent_encoder_dims is None:
                 raise ValueError("Invalid combination of encoders")
 
-            latent_encoder = MLP(hidden_features=latent_encoder_dims, out_features=(z_dim * 2), last_activation=(latent_sa_heads is not None))
-            latent_self_attention = MultiheadSelfAttention(dim_out=(z_dim * 2), num_heads=latent_sa_heads) if latent_sa_heads is not None else None
+            latent_encoder = MLP(hidden_features=latent_encoder_dims, out_features=z_dim, last_activation=(latent_sa_heads is not None))
+            latent_self_attention = MultiheadSelfAttention(dim_out=z_dim, num_heads=latent_sa_heads) if latent_sa_heads is not None else None
 
             if determ_encoder_dims is not None:
                 determ_encoder = MLP(hidden_features=determ_encoder_dims, out_features=r_dim, last_activation=(determ_sa_heads is not None))
@@ -135,7 +135,7 @@ class ANP:
                 determ_self_attention = None
                 determ_cross_attention = None
 
-        decoder = MLP(hidden_features=decoder_dims, out_features=(y_dim * 2))
+        decoder = MLP(hidden_features=decoder_dims, out_features=y_dim)
 
         return ANPBase(
             latent_encoder=latent_encoder,

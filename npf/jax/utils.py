@@ -1,8 +1,49 @@
+from __future__ import annotations
+
 from functools import wraps
+
+from jax import numpy as jnp
+from jax.scipy import stats
 
 from .data import NPData
 from .typing import *
 from . import functional as F
+
+
+__all__ = [
+    "MultivariateNormalDiag",
+    "input_to_npdata",
+    "npf_io",
+]
+
+
+class MultivariateNormalDiag:
+    """
+    Utility class for multivariate normal distribution.
+    Resembles `tensorflow.distributions.MultivariateNormalDiag`.
+    """
+
+    def __init__(
+        self,
+        loc,
+        scale_diag,
+    ):
+        self.loc = loc
+        self.scale_diag = scale_diag
+
+    def kl_divergence(self, other: MultivariateNormalDiag):
+        per_dim_kld = (
+            jnp.log(other.scale_diag) - jnp.log(self.scale_diag)
+            + (jnp.square(self.scale_diag) + jnp.square(self.loc - other.loc)) / (2 * jnp.square(other.scale_diag))
+            - 0.5,
+        )
+        kld = jnp.sum(per_dim_kld, axis=-1)
+        return kld
+
+    def log_prob(self, value):
+        per_dim_log_prob = stats.norm.logpdf(value, self.loc, self.scale_diag)
+        log_prob = jnp.sum(per_dim_log_prob, axis=-1)
+        return log_prob
 
 
 # TODO: Improve typing
@@ -81,8 +122,8 @@ def npf_io(
                 else:
                     flatten_mu, flatten_sigma, *aux = func(flatten_data, **kwargs)
 
-                mu    = F.unflatten(flatten_mu,    tar_shape, axis=1)
-                sigma = F.unflatten(flatten_sigma, tar_shape, axis=1)
+                mu    = F.unflatten(flatten_mu,    tar_shape, axis=-2)
+                sigma = F.unflatten(flatten_sigma, tar_shape, axis=-2)
             return mu, sigma, *aux
         return wrapper
 

@@ -1,5 +1,0 @@
-datasets:  !include configs/gp/t_noise/125/datasets.yaml
-model:     !include configs/gp/models/convbnp.yaml
-optimizer: !include configs/gp/optimizer.yaml
-train:     !include configs/gp/t_noise/125/train.yaml
-test:      !include configs/gp/t_noise/test.yaml

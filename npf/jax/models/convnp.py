@@ -3,13 +3,14 @@ from ..typing import *
 import math
 
 from jax import random
-from jax import vmap
 from jax import numpy as jnp
 from jax.scipy import stats
 from flax import linen as nn
 
 from .base import NPF
 from .. import functional as F
+from ..data import NPData
+from ..utils import npf_io
 from ..modules import (
     # UNet,
     CNN,
@@ -18,14 +19,25 @@ from ..modules import (
     SetConv1dDecoder,
 )
 
+
 __all__ = [
     "ConvNPBase",
     "ConvNP",
 ]
 
+
+def kl_divergence(mu_1, sigma_1, mu_2, sigma_2):
+    kld = (
+        jnp.log(sigma_2) - jnp.log(sigma_1)
+        + (jnp.square(sigma_1) + jnp.square(mu_1 - mu_2)) / (2 * jnp.square(sigma_2))
+        - 0.5
+    )
+    return kld
+
+
 class ConvNPBase(NPF):
     """
-    Base class of Convolutional Conditional Neural Process
+    Base class of Convolutional Neural Process
     """
 
     z_dim:       int
@@ -34,7 +46,7 @@ class ConvNPBase(NPF):
     cnn:         nn.Module = None
     cnn_post_z:  nn.Module = None
     decoder:     nn.Module = None
-    min_sigma:   float = 0.0
+    min_sigma:   float = 0.1
 
     def __post_init__(self):
         super().__post_init__()
@@ -48,101 +60,182 @@ class ConvNPBase(NPF):
             raise ValueError("decoder is not specified")
 
     @nn.compact
+    @npf_io
     def __call__(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
+        *,
         num_latents: int = 1,
+        training: bool = False,
+        return_aux: bool = False,
     ) -> Tuple[Array[B, [T], Y], Array[B, [T], Y]]:
 
         # Discretize
-        x_grid, mask_grid = self.discretizer(x_ctx, x_tar, mask_ctx, mask_tar)                      # [1, discrete, x_dim] (broadcastable to [batch, discrete, x_dim]), [discrete]
+        x_grid, mask_grid = self.discretizer(data.x_ctx, data.x, data.mask_ctx, data.mask)          # [1, discrete, x_dim] (broadcastable to [batch, discrete, x_dim]), [discrete]
 
         # Encode
-        h = self.encoder(x_grid, x_ctx, y_ctx, mask_ctx)                                            # [batch, discrete, y_dim + 1]
+        h = self.encoder(x_grid, data.x_ctx, data.y_ctx, data.mask_ctx)                             # [batch, discrete, y_dim + 1]
 
         # Convolution
         h = self.cnn(h)
 
         # Transform to qz parameters and sample z
         r = nn.Dense(2 * self.z_dim)(h)
-        # [batch_size, num_grids, z_dim]
-        mu, sigma = jnp.split(nn.Dense(2 * self.z_dim)(r), 2, axis=-1)
-        sigma = 0.1 + 0.9 * nn.sigmoid(sigma)
+        z_mu_log_sigma = nn.Dense(2 * self.z_dim)(r)                                                # [batch, grid, z_dim x 2]
+        z_mu_log_sigma = jnp.expand_dims(z_mu_log_sigma, axis=1)                                    # [batch, 1, grid, z_dim x 2]
+        z_mu, z_log_sigma = jnp.split(z_mu_log_sigma, 2, axis=-1)                                   # [batch, 1, grid, z_dim] x 2
+        z_sigma = self.min_sigma + (1 - self.min_sigma) * nn.sigmoid(z_log_sigma)                   # [batch, 1, grid, z_dim]
+
         rng = self.make_rng("sample")
-        # [batch_size, num_latents, num_grids, z_dim]
-        eps = random.normal(rng, shape=(mu.shape[0], num_latents) + mu.shape[1:])
-        # [batch_size, num_latents, num_grids, z_dim]
-        z = jnp.expand_dims(mu, 1) + jnp.expand_dims(sigma, 1) * eps
-        # [batch_size, num_latents, num_grids, z_dim]
-        # merge first two dims, [batch_size*num_latents, num_grids, z_dim]
-        z = z.reshape((-1,) + z.shape[2:])
-        z = self.cnn_post_z(z)
-        # split first two dims, [batch_size, num_latents, num_grids, z_dim]
-        z = z.reshape((-1, num_latents) + z.shape[1:])
+        num_batches = z_mu.shape[0]
+        eps = random.normal(rng, shape=(num_batches, num_latents) + z_mu.shape[1:])                 # [batch, latent, grid, z_dim]
+
+        z_orig = z = z_mu + z_sigma * eps                                                           # [batch, latent, grid, z_dim]
+
+        z, shape = F.flatten(z, start=0, stop=2, return_shape=True)                                 # [batch x latent, grid, z_dim]
+        z = self.cnn_post_z(z)                                                                      # [batch x latent, grid, z_dim]
+        z = F.unflatten(z, shape, axis=0)                                                           # [batch, latent, grid, z_dim]
 
         # Decode
         h = self.decoder(
-            jnp.expand_dims(x_tar, 1),
+            jnp.expand_dims(data.x, 1),
             jnp.expand_dims(x_grid, 1),
             z,
             jnp.expand_dims(mask_grid, 1),
         )                                                                                            # [batch, latent, target, y_dim]
 
-        mu_log_sigma = nn.Dense(2 * y_ctx.shape[-1])(h)                                             # [batch, latent, target, y_dim x 2]
+        mu_log_sigma = nn.Dense(2 * data.y_ctx.shape[-1])(h)                                        # [batch, latent, target, y_dim x 2]
         mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, latent, target, y_dim] x 2
         sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma)                      # [batch, latent, target, y_dim]
 
-        mu    = F.masked_fill(mu,    mask_tar, non_mask_axis=(1, -1))                               # [batch, latent, target, y_dim]
-        sigma = F.masked_fill(sigma, mask_tar, non_mask_axis=(1, -1))                               # [batch, latent, target, y_dim]
-        return mu, sigma
+        mu    = F.masked_fill(mu,    data.mask, non_mask_axis=(1, -1))                               # [batch, latent, target, y_dim]
+        sigma = F.masked_fill(sigma, data.mask, non_mask_axis=(1, -1))                               # [batch, latent, target, y_dim]
 
+        if training and return_aux:
+
+            return mu, sigma, (z_orig, z_mu, z_sigma, z_mu_ctx, z_sigma_ctx)
+        else:
+            return mu, sigma
+
+    @npf_io
     def log_likelihood(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
+        data: NPData,
+        *,
         num_latents: int = 1,
     ) -> Array:
 
-        mu, sigma = self(x_ctx, y_ctx, x_tar, mask_ctx, mask_tar, num_latents=num_latents)
+        mu, sigma = self(data, num_latents=num_latents, training=False, skip_io=True)               # [batch, latent, *point, y_dim] x 2
 
-        # [batch, num_latents, *targets, y_dim]
-        ll = stats.norm.logpdf(jnp.expand_dims(y_tar, 1), mu, sigma)
-        # [batch, num_latents *targets]
-        ll = jnp.sum(ll, axis=-1)
-        # [batch, num_latents]
-        ll = F.masked_sum(ll, jnp.expand_dims(mask_tar, 1), axis=-1, non_mask_axis=())
-        # [batch]
-        ll = F.logmeanexp(ll, axis=-1)
-        # divide by num_tar to adjust scale
-        ll = jnp.mean(ll / mask_tar.sum(-1))
+        s_y = jnp.expand_dims(data.y, axis=1)                                                       # [batch, 1,      *point, y_dim]
+        log_prob = stats.norm.logpdf(s_y, mu, sigma)                                                # [batch, latent, *point, y_dim]
+        ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, latent, *point]
+
+        axis = [-i for i in range(1, ll.ndim - 1)]
+        ll = F.logmeanexp(ll, axis=1)                                                               # [batch, *point]
+        ll = F.masked_mean(ll, data.mask, axis=axis)                                                # [batch]
+        ll = jnp.mean(ll)                                                                           # (1)
+
         return ll
 
-    def loss(
+    @npf_io
+    def loss(self, data: NPData, *, num_latents: int = 1, return_aux: bool = False) -> Array:
+        if self.loss_type == "vi" or self.loss_type == "iwae":
+            return self.iwae_loss(data, num_latents=num_latents, return_aux=return_aux, skip_io=True)
+        elif self.loss_type == "elbo":
+            return self.elbo_loss(data, num_latents=num_latents, return_aux=return_aux, skip_io=True)
+        elif self.loss_type == "ml":
+            return self.ml_loss(data, num_latents=num_latents, skip_io=True)
+
+    @npf_io
+    def iwae_loss(
         self,
-        x_ctx:    Array[B, [C], X],
-        y_ctx:    Array[B, [C], Y],
-        x_tar:    Array[B, [T], X],
-        y_tar:    Array[B, [T], Y],
-        mask_ctx: Array[B, [C]],
-        mask_tar: Array[B, [T]],
-        num_latents:int = 1,
+        data: NPData,
+        *,
+        num_latents: int = 1,
+        return_aux: bool = False,
     ) -> Array:
 
-        loss = -self.log_likelihood(x_ctx, y_ctx, x_tar, y_tar, mask_ctx, mask_tar,
-                                    num_latents=num_latents)
+        mu, sigma, (z, z_mu, z_sigma, z_mu_ctx, z_sigma_ctx) = self(                                # [batch, latent, point, y_dim] x 2, ([batch, latent, z_dim], [batch, 1, z_dim] x 2)
+            data, num_latents=num_latents, training=True, return_aux=True, skip_io=True,
+        )
+
+        s_y = jnp.expand_dims(data.y, axis=1)                                                       # [batch, 1,      *point, y_dim]
+        log_prob = stats.norm.logpdf(s_y, mu, sigma)                                                # [batch, latent, *point, y_dim]
+        ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, latent, *point]
+
+        axis = [-i for i in range(1, ll.ndim - 1)]
+        ll = F.masked_sum(ll, data.mask, axis=axis, non_mask_axis=1)                                # [batch, latent]
+
+        log_p = stats.norm.logpdf(z, z_mu_ctx, z_sigma_ctx)                                         # [batch, latent, z_dim]
+        log_p = jnp.sum(log_p, axis=-1)                                                             # [batch, latent]
+
+        log_q = stats.norm.logpdf(z, z_mu, z_sigma)                                                 # [batch, latent, z_dim]
+        log_q = jnp.sum(log_q, axis=-1)                                                             # [batch, latent]
+
+        loss = - F.logmeanexp(ll + log_p - log_q, axis=1)                                           # [batch]
+        loss = jnp.mean(loss)                                                                       # (1)
+
         return loss
+
+    @npf_io
+    def elbo_loss(
+        self,
+        data: NPData,
+        *,
+        num_latents: int = 1,
+        return_aux: bool = False,
+    ) -> Array:
+
+        mu, sigma, (_, z_mu, z_sigma, z_mu_ctx, z_sigma_ctx) = self(                                # [batch, latent, *point, y_dim] x 2, ([batch, latent, z_dim], [batch, 1, z_dim] x 2)
+            data, num_latents=num_latents, training=True, return_aux=True, skip_io=True,
+        )
+
+        s_y = jnp.expand_dims(data.y, axis=1)                                                       # [batch, 1,      *point, y_dim]
+        log_prob = stats.norm.logpdf(s_y, mu, sigma)                                                # [batch, latent, *point, y_dim]
+        ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, latent, *point]
+
+        axis = [-i for i in range(1, ll.ndim - 1)]
+        ll = F.masked_sum(ll, data.mask, axis=axis, non_mask_axis=1)                                # [batch, latent]
+        ll = jnp.mean(ll)                                                                           # (1)
+
+        kld = kl_divergence(z_mu, z_sigma, z_mu_ctx, z_sigma_ctx)                                   # [batch, 1, z_dim]
+        kld = jnp.sum(kld, axis=(-2, -1))                                                           # [batch]
+        kld = jnp.mean(kld)                                                                         # (1)
+
+        loss = -ll + kld                                                                            # (1)
+
+        if return_aux:
+            return loss, dict(ll=ll, kld=kld)
+        else:
+            return loss
+
+    @npf_io
+    def ml_loss(
+        self,
+        data: NPData,
+        *,
+        num_latents: int = 1,
+    ) -> Array:
+
+        mu, sigma = self(data, num_latents=num_latents, training=True, skip_io=True)                # [batch, latent, *point, y_dim] x 2
+
+        s_y = jnp.expand_dims(data.y, axis=1)                                                       # [batch, 1,      *point, y_dim]
+        log_prob = stats.norm.logpdf(s_y, mu, sigma)                                                # [batch, latent, *point, y_dim]
+        ll = jnp.sum(log_prob, axis=-1)                                                             # [batch, latent, *point]
+
+        axis = [-i for i in range(1, ll.ndim - 1)]
+        ll = F.masked_sum(ll, data.mask, axis=axis, non_mask_axis=1)                                # [batch, latent]
+        ll = F.logmeanexp(ll, axis=1)                                                               # [batch]
+        ll = jnp.mean(ll)                                                                           # (1)
+
+        loss = -ll                                                                                  # (1)
+
+        return loss                                                                                 # (1)
 
 class ConvNP:
     """
-    Convolutional Conditional Neural Process
+    Convolutional Neural Process
     """
 
     def __new__(cls,

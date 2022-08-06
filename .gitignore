@@ -5,6 +5,6 @@
 /docs/_build
 /_*
 
-/outs
+/outs*
 /datasets
 *.pyc
