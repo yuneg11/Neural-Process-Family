@@ -285,6 +285,7 @@ class NPBase(NPF):
         loss = -self.log_likelihood(data, num_latents=num_latents, joint=joint, skip_io=True)       # (1)
         return loss                                                                                 # (1)
 
+
 class NP:
     """
     Neural Process
@@ -301,7 +302,7 @@ class NP:
         decoder_dims: Sequence[int] = (128, 128, 128),
         loss_type: str = "vi",
         min_sigma: float = 0.1,
-        min_late_sigma: float = 0.1,
+        min_latent_sigma: float = 0.1,
     ):
 
         if common_encoder_dims is not None:
@@ -330,5 +331,5 @@ class NP:
             decoder=decoder,
             loss_type=loss_type,
             min_sigma=min_sigma,
-            min_latent_sigma=min_late_sigma,
+            min_latent_sigma=min_latent_sigma,
         )
