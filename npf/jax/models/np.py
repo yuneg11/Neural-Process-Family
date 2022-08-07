@@ -108,8 +108,8 @@ class NPBase(NPF):
     ) -> Tuple[Array[B, L, P, Y], Array[B, L, P, Y]]:
 
         query, shape = F.flatten(query, start=0, stop=-2, return_shape=True)                        # [batch x latent, point, x_dim + z_dim (+ r_dim)]
-        mu_log_sigma = self.decoder(query)                                                          # [batch x latent, point, y_dim]
-        mu_log_sigma = F.unflatten(mu_log_sigma, shape, axis=0)                                     # [batch,  latent, point, y_dim, 2]
+        mu_log_sigma = self.decoder(query)                                                          # [batch x latent, point, y_dim x 2]
+        mu_log_sigma = F.unflatten(mu_log_sigma, shape, axis=0)                                     # [batch,  latent, point, y_dim x 2]
 
         mu, log_sigma = jnp.split(mu_log_sigma, 2, axis=-1)                                         # [batch, latent, point, y_dim] x 2
         sigma = self.min_sigma + (1 - self.min_sigma) * nn.softplus(log_sigma)                      # [batch, latent, point, y_dim]
@@ -262,10 +262,10 @@ class NPBase(NPF):
 
         q_z = MultivariateNormalDiag(z_mu, z_sigma)                                                 # [batch, 1, z_dim]
         p_z = MultivariateNormalDiag(z_mu_ctx, z_sigma_ctx)                                         # [batch, 1, z_dim]
+
         kld = jnp.squeeze(q_z.kl_divergence(p_z), axis=1)                                           # [batch]
 
-
-        loss = -ll + kld                                                                            # [batch]
+        loss = -ll + kld / jnp.sum(data.mask_ctx, axis=-1)                                          # [batch]
         loss = jnp.mean(loss)                                                                       # (1)
 
         if return_aux:

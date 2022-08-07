@@ -238,16 +238,15 @@ class ConvNPBase(NPF):
         log_prob = MultivariateNormalDiag(mu, sigma).log_prob(s_y)                                  # [batch, latent, *point]
         axis = [-i for i in range(1, log_prob.ndim - 1)]
 
-        ll = F.masked_sum(log_prob, data.mask, axis=axis, non_mask_axis=1)                          # [batch, latent]
-        ll = jnp.mean(ll, axis=-1) / jnp.sum(data.mask, axis=axis)                                  # [batch]
+        ll = F.masked_mean(log_prob, data.mask, axis=(1, *axis), non_mask_axis=1)                   # [batch]
 
         q_z = MultivariateNormalDiag(z_mu, z_sigma)                                                 # [batch, 1, *grid, z_dim]
         p_z = MultivariateNormalDiag(z_mu_ctx, z_sigma_ctx)                                         # [batch, 1, *grid, z_dim]
 
         kld = jnp.squeeze(q_z.kl_divergence(p_z), axis=1)                                           # [batch, *grid]
-        kld = F.masked_sum(kld, mask_grid, axis=axis) / jnp.sum(data.mask, axis=axis)               # [batch]
+        kld = F.masked_sum(kld, mask_grid, axis=axis)                                               # [batch]
 
-        loss = -ll + kld                                                                            # [batch]
+        loss = -ll + kld / jnp.sum(data.mask_ctx, axis=axis)                                        # [batch]
         loss = jnp.mean(loss)                                                                       # (1)
 
         if return_aux:

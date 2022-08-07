@@ -32,7 +32,7 @@ In addition to the above basic properties, `NPData` also provides the following 
 - `y_ctx`: Context output data of shape `[batch_size, *task_size, output dim]` ($y_\text{context}$)
 - `y_tar`: Target output data of shape `[batch_size, *task_size, output dim]` ($y_\text{target}$)
 
-Basically, these properties are the mask filled versions of the basic properties (filled with $0$),
+These properties are the mask-filled versions of the basic properties (filled with $0$),
 and we can build them using the basic properties (e.g. `x_ctx = where(cond=mask_ctx, true=x, false=0)`).
 However, the name of the additional properties is more intuitive.
 So, we decided to let `NPData` provide them for convenience.
@@ -153,6 +153,8 @@ ll = model.apply(
 
 ### 3. `NPF` models
 
+#### Interface methods
+
 `NPF` models should implement the three key methods: `__call__`, `log_likelihood` and `loss`.
 
 - `__call__(self, data, **kwargs)`: forward pass. The return should be `(mu, sigma)` or `(mu, sigma, aux)` for `data.x`.
@@ -162,3 +164,15 @@ ll = model.apply(
 - `loss(self, data, **kwargs)`: loss.  The return should be `loss` or `(loss, aux)`.
 
 Here, `aux` can be an auxiliary data which is used by internal functions or contains debugging metrics.
+
+#### Neural network output dimensions
+
+As you can see in [NP code](npf/jax/models/np.py) (Line 290 ~ ),
+the output dimension of the latent encoder and the decoder is two times the actual output dimension (`z_dim * 2` and `y_dim * 2`).
+This is because we should split the output dimension into two parts `mu` and `sigma` to make a Gaussian distribution (`MultivariateNormDiag`).
+So, if the output represents the distribution, the output dimension of the network should be twice its dimension.
+Someone can argue that we can linear transform the output with an inline linear layer (e.g. `z = nn.Dense(2 * z_dim)(z)`).
+This is true, but due to the limitation of `Flax`, we cannot do this if we use `nn.compact` initializing method.
+When we reuse some of the internal methods using inline linear layers, `Flax` will make different linear layers each time.
+Otherwise, we can use `setup` initializing method to overcome this limitation, but the model needs to know the dimensions of the output before it is initialized.
+Therefore, we decided to force users to take care of the output dimensions of these networks.
