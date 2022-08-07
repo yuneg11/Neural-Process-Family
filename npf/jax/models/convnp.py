@@ -67,6 +67,7 @@ class ConvNPBase(NPF):
         z_i:  Array[B, [G], Z * 2],
         mask: Array[B, [G]],
     ) -> Tuple[Array[B, 1, [G], Z], Array[B, 1, [G], Z]]:
+
         z_mu_log_sigma = jnp.expand_dims(z_i, axis=1)                                               # [batch, 1, *grid, z_dim x 2]
         z_mu, z_log_sigma = jnp.split(z_mu_log_sigma, 2, axis=-1)                                   # [batch, 1, *grid, z_dim] x 2
         z_sigma = self.min_latent_sigma + (1 - self.min_latent_sigma) * nn.sigmoid(z_log_sigma)     # [batch, 1, *grid, z_dim]
@@ -212,12 +213,10 @@ class ConvNPBase(NPF):
 
         log_p = MultivariateNormalDiag(z_mu_ctx, z_sigma_ctx).log_prob(z)                           # [batch, latent, *grid]
         log_q = MultivariateNormalDiag(z_mu, z_sigma).log_prob(z)                                   # [batch, latent, *grid]
+        log_p = F.masked_sum(log_p, mask_grid, axis=axis, non_mask_axis=1)                          # [batch, latent]
+        log_q = F.masked_sum(log_q, mask_grid, axis=axis, non_mask_axis=1)                          # [batch, latent]
 
-        # TODO: Check this mean is correct. (or sum?)
-        log_p = F.masked_mean(log_p, mask_grid, axis=axis, non_mask_axis=1)                         # [batch, latent]
-        log_q = F.masked_mean(log_q, mask_grid, axis=axis, non_mask_axis=1)                         # [batch, latent]
-
-        loss = -F.logmeanexp(ll + log_p - log_q, axis=1)                                            # [batch]
+        loss = -F.logmeanexp(ll + log_p - log_q, axis=1) / jnp.sum(data.mask, axis=axis)            # [batch]
         loss = jnp.mean(loss)                                                                       # (1)
 
         return loss                                                                                 # (1)
@@ -240,23 +239,23 @@ class ConvNPBase(NPF):
         axis = [-i for i in range(1, log_prob.ndim - 1)]
 
         ll = F.masked_sum(log_prob, data.mask, axis=axis, non_mask_axis=1)                          # [batch, latent]
-        ll = jnp.mean(ll, axis=-1)                                                                  # [batch]
+        ll = jnp.mean(ll, axis=-1) / jnp.sum(data.mask, axis=axis)                                  # [batch]
 
         q_z = MultivariateNormalDiag(z_mu, z_sigma)                                                 # [batch, 1, *grid, z_dim]
         p_z = MultivariateNormalDiag(z_mu_ctx, z_sigma_ctx)                                         # [batch, 1, *grid, z_dim]
+
         kld = jnp.squeeze(q_z.kl_divergence(p_z), axis=1)                                           # [batch, *grid]
+        kld = F.masked_sum(kld, mask_grid, axis=axis) / jnp.sum(data.mask, axis=axis)               # [batch]
 
-        # TODO: Check this mean is correct. (or sum?)
-        kld = F.masked_mean(kld, mask_grid, axis=axis)                                              # [batch]
-
-        ll = jnp.mean(ll)                                                                           # (1)
-        kld = jnp.mean(kld)                                                                         # (1)
-        loss = -ll + kld                                                                            # (1)
+        loss = -ll + kld                                                                            # [batch]
+        loss = jnp.mean(loss)                                                                       # (1)
 
         if return_aux:
-            return loss, dict(ll=ll, kld=kld)
+            ll = jnp.mean(ll)                                                                       # (1)
+            kld = jnp.mean(kld)                                                                     # (1)
+            return loss, dict(ll=ll, kld=kld)                                                       # (1), (aux)
         else:
-            return loss
+            return loss                                                                             # (1)
 
     @npf_io
     def ml_loss(

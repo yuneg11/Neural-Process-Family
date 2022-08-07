@@ -237,7 +237,7 @@ class NPBase(NPF):
         log_p = MultivariateNormalDiag(z_mu_ctx, z_sigma_ctx).log_prob(z)                           # [batch, latent]
         log_q = MultivariateNormalDiag(z_mu, z_sigma).log_prob(z)                                   # [batch, latent]
 
-        loss = -F.logmeanexp(ll + log_p - log_q, axis=1)                                            # [batch]
+        loss = -F.logmeanexp(ll + log_p - log_q, axis=1) / jnp.sum(data.mask, axis=-1)              # [batch]
         loss = jnp.mean(loss)                                                                       # (1)
 
         return loss                                                                                 # (1)
@@ -257,18 +257,20 @@ class NPBase(NPF):
 
         s_y = jnp.expand_dims(data.y, axis=1)                                                       # [batch, 1,      point, y_dim]
         log_prob = MultivariateNormalDiag(mu, sigma).log_prob(s_y)                                  # [batch, latent, point]
-        ll = F.masked_sum(log_prob, data.mask, axis=-1, non_mask_axis=1)                            # [batch, latent]
-        ll = jnp.mean(ll, axis=-1)                                                                  # [batch]
+
+        ll = F.masked_mean(log_prob, data.mask, axis=(1, -1), non_mask_axis=1)                      # [batch]
 
         q_z = MultivariateNormalDiag(z_mu, z_sigma)                                                 # [batch, 1, z_dim]
         p_z = MultivariateNormalDiag(z_mu_ctx, z_sigma_ctx)                                         # [batch, 1, z_dim]
         kld = jnp.squeeze(q_z.kl_divergence(p_z), axis=1)                                           # [batch]
 
-        ll = jnp.mean(ll)                                                                           # (1)
-        kld = jnp.mean(kld)                                                                         # (1)
-        loss = -ll + kld                                                                            # (1)
+
+        loss = -ll + kld                                                                            # [batch]
+        loss = jnp.mean(loss)                                                                       # (1)
 
         if return_aux:
+            ll = jnp.mean(ll)                                                                       # (1)
+            kld = jnp.mean(kld)                                                                     # (1)
             return loss, dict(ll=ll, kld=kld)                                                       # (1), (aux)
         else:
             return loss                                                                             # (1)
