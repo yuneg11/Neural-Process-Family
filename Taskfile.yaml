@@ -1,0 +1,33 @@
+version: "3"
+
+env:
+  PACKAGE: np_family
+  DOC_DIR: docs
+  DOC_BUILD_DIR: docs/_build
+
+tasks:
+  build:
+    cmds:
+      - python -m build
+  clean:
+    cmds:
+      - rm -r dist ${PACKAGE}.egg-info
+  check:
+    cmds:
+      - twine check dist/*
+  upload:
+    cmds:
+      - twine upload dist/*
+    interactive: true
+  install:
+    cmds:
+      - pip install -e .
+  # docs-build:
+  #   cmds:
+  #     - sphinx-build ${DOC_DIR} ${DOC_BUILD_DIR}
+  # docs-dev:
+  #   cmds:
+  #     - sphinx-autobuild ${DOC_DIR} ${DOC_BUILD_DIR}/html
+  # docs-api:
+  #   cmds:
+  #     - sphinx-apidoc -f -o ${DOC_DIR} ${PACKAGE} #--separate

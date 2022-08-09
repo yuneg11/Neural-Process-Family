@@ -179,10 +179,9 @@ def main(config, output_dir):
 
             for batch in p.track(iter_loader, description="Train", remove=True, total=num_step_per_epoch):
                 key, model_key = random.split(key)
+                replicated_rngs = jax_utils.replicate(dict(sample=model_key))
 
-                state, train_metric = train_step(
-                    state=state, rngs=jax_utils.replicate(dict(sample=model_key)), batch=batch,
-                )
+                state, train_metric = train_step(state=state, rngs=replicated_rngs, batch=batch)
 
                 train_meter.update(loss=train_metric["loss"], n=len(batch.x))
 
@@ -192,8 +191,8 @@ def main(config, output_dir):
                     aux_meter.update(train_metric["aux"])
 
             logger.info(
-                f"Epoch {i:3d} / {config.train.num_epochs:4d} | Train Loss: {train_meter.loss:7.4f}"
-                + (f" | LR: {schedule(state.step[0]):.4e}" if config.optimizer.use_scheduler else "")
+                f"Epoch {i:4d} / {config.train.num_epochs:4d} | Train Loss: {train_meter.loss:7.4f}"
+                f" | LR: {schedule(state.step[0]):.4e}"
                 + ("" if aux_meter is None else " | " + "  ".join([f"{k}: {v:7.4f}" for k, v in aux_meter.value.items()]))
             )
 
@@ -214,8 +213,7 @@ def main(config, output_dir):
                 ll_ctx, ll_tar, ll = valid_meter.ll_ctx, valid_meter.ll_tar, valid_meter.ll
 
                 logger.info(
-                    f"                 | "
-                    f"Valid LL CTX: {ll_ctx:7.4f}  LL TAR: {ll_tar:7.4f}  LL: {ll:7.4f}"
+                    f"                  | Valid LL ctx: {ll_ctx:7.4f}  LL tar: {ll_tar:7.4f}  LL: {ll:7.4f}"
                     f"{'  (Best LL)' if ll > best_ll else ''}"
                 )
 
@@ -223,9 +221,7 @@ def main(config, output_dir):
                     best_ll, best_epoch, best_state = ll, i, state
 
             if i % config.train.save_every == 0 and jax.process_index() == 0:
-                checkpoints.save_checkpoint(
-                    output_dir, jax_utils.unreplicate(state), step=i, prefix="ckpt_epoch_",
-                )
+                checkpoints.save_checkpoint(output_dir, jax_utils.unreplicate(state), step=i, prefix="ckpt_epoch_")
 
                 if best_state is not None:
                     checkpoints.save_checkpoint(

@@ -1,2 +1,0 @@
-recursive-include npf *.py
-recursive-exclude * __pycache__

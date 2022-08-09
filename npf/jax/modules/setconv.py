@@ -9,6 +9,7 @@ from flax import linen as nn
 
 from .. import functional as F
 
+
 __all__ = [
     "Discretization1d",
     "SetConv1dEncoder",
@@ -16,6 +17,7 @@ __all__ = [
     "SetConv2dEncoder",
     "SetConv2dDecoder",
 ]
+
 
 class Discretization1d(nn.Module):
     minval: float
@@ -60,6 +62,7 @@ class Discretization1d(nn.Module):
         x_grid = np.expand_dims(x_grid, axis=-1)                                                    # [batch, discrete, 1]
 
         return x_grid, mask_grid
+
 
 class SetConvBase(nn.Module):
     init_log_scale: float = 1.0
@@ -107,6 +110,7 @@ class SetConvBase(nn.Module):
         weight = jnp.exp(-0.5 * distance / jnp.exp(2 * log_scale))                                  # [batch, n, m]
         return weight
 
+
 class SetConv1dEncoder(SetConvBase):
     @nn.compact
     def __call__(self,
@@ -145,6 +149,7 @@ class SetConv1dDecoder(SetConvBase):
 
         return value
 
+
 class SetConv2dEncoder(SetConvBase):
     @nn.compact
     def __call__(self,
@@ -173,6 +178,7 @@ class SetConv2dEncoder(SetConvBase):
         value = jnp.concatenate((identity, value), axis=-1)                                         # [batch, target, target, v_dim + 2]
 
         return value
+
 
 class SetConv2dDecoder(SetConvBase):
     @nn.compact
