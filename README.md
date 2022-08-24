@@ -250,3 +250,16 @@ python scripts/jax/test.py -d outs/CNP/Train/RBF/Inf/220704-181313-vweh \
     - `y`:    `[batch, height, width, 1 or 3]`
     - `mask`: `[batch, height, width]`
     - `outs`: `[batch, sample, height, width, 1 or 3]`
+
+
+<br>
+<br>
+<br>
+<br>
+
+
+## Acknowledgements
+
+- We used Cloud TPUs supported by Google’s [TPU Research Cloud (TRC)](https://sites.research.google/trc/about/).
+- Synthetic GP dataset codes based on [juho-lee/bnp](https://github.com/juho-lee/bnp).
+- SetConv modules based on [wesselb/gabriel-convcnp](https://github.com/wesselb/gabriel-convcnp).
